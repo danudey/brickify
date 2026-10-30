@@ -19,7 +19,7 @@ trunk build --release        # static site in dist/, host it anywhere
 ## Command line (no window)
 
 ```sh
-brickify IMAGE --width 48 [--layout flat|upright] [--parts plate|brick] [--smooth] [--no-backing] [--border STUDS] --export out.ldr
+brickify IMAGE --width 48 [--layout flat|upright] [--parts plate|brick|hybrid] [--smooth] [--no-backing] [--border STUDS] --export out.ldr
 ```
 
 The export type comes from the extension: `.ldr`, `.obj` or `.csv`.
@@ -37,10 +37,14 @@ The export type comes from the extension: `.ldr`, `.obj` or `.csv`.
 4. An optional border outlines the picture. In an upright wall, parts grip the rows above
    and below, so the border holds loose parts and colour changes together without a back
    layer. In a flat mosaic it is only a frame: parts side by side don't grip each other.
-5. "Smooth top" swaps plates for tiles where nothing sits on them: the whole picture layer of a
+5. Hybrid walls use plate-height rows grouped into bands of three. Where a column's three
+   cells in a band share a colour, one brick replaces three plates; plates keep the detail
+   elsewhere. That needs about 15-40% fewer pieces than plates for the same picture. Use a
+   border to hold a hybrid wall together (the back layer isn't available in hybrid mode).
+6. "Smooth top" swaps plates for tiles where nothing sits on them: the whole picture layer of a
    flat mosaic, or every uncovered plate of a wall (when a tile that size exists).
-6. The sidebar reports whether every part is connected; loose parts are outlined in red.
-7. Open the `.ldr` file in Studio, LeoCAD or LDView to see the real parts and build steps.
+7. The sidebar reports whether every part is connected; loose parts are outlined in red.
+8. Open the `.ldr` file in Studio, LeoCAD or LDView to see the real parts and build steps.
 
 ## Source layout
 

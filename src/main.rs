@@ -11,9 +11,9 @@ use mosaic::Settings;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use mosaic::{Layout, PartKind};
+    use mosaic::{Layout, Parts};
     const USAGE: &str = "usage: brickify [IMAGE] [--width STUDS] [--layout flat|upright] \
-                         [--parts plate|brick] [--smooth] [--no-backing] [--border STUDS] \
+                         [--parts plate|brick|hybrid] [--smooth] [--no-backing] [--border STUDS] \
                          [--export OUT.ldr|.obj|.csv]";
     let mut settings = Settings::default();
     let mut input = None;
@@ -31,7 +31,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             "--parts" => {
                 let parts = value()?;
-                settings.kind = if parts == "brick" { PartKind::Brick } else { PartKind::Plate };
+                settings.parts = match parts.as_str() {
+                    "brick" => Parts::Bricks,
+                    "hybrid" => Parts::Hybrid,
+                    _ => Parts::Plates,
+                };
                 // "tile" is kept as shorthand for plates with a smooth top.
                 settings.smooth_top |= parts == "tile";
             }

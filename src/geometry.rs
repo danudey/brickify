@@ -40,13 +40,11 @@ pub fn brick_bounds(m: &Mosaic, b: &Brick) -> ([f32; 3], [f32; 3]) {
             ([x0, top, z0], [x1, bottom, z1])
         }
         Layout::Upright => {
-            let height = m.kind.height();
-            let top = -((m.rows - b.row) as f32) * height;
+            // Grid rows are one `m.kind` tall; a part can span several (hybrid bricks span 3).
+            let row_height = m.kind.height();
+            let top = -((m.rows - b.row) as f32) * row_height;
             let front = -WALL_DEPTH / 2.0 + b.z as f32 * STUD;
-            (
-                [x0, top, front],
-                [x1, top + height, front + b.d as f32 * STUD],
-            )
+            ([x0, top, front], [x1, top + b.h as f32 * row_height, front + b.d as f32 * STUD])
         }
     }
 }
@@ -66,9 +64,11 @@ pub fn build(m: &Mosaic, studs: bool) -> Vec<Tri> {
     let mut slots = vec![false; (m.cols * m.rows * 2) as usize];
     if m.layout == Layout::Upright {
         for b in &m.bricks {
-            for c in b.col..b.col + b.w {
-                for z in b.z..b.z + b.d {
-                    slots[((b.row * m.cols + c) * 2 + z) as usize] = true;
+            for r in b.row..b.row + b.h {
+                for c in b.col..b.col + b.w {
+                    for z in b.z..b.z + b.d {
+                        slots[((r * m.cols + c) * 2 + z) as usize] = true;
+                    }
                 }
             }
         }
@@ -178,25 +178,19 @@ pub fn build(m: &Mosaic, studs: bool) -> Vec<Tri> {
                 let (z0, z1) = (lo[2], hi[2]);
                 let (s0, s1) = (b.z as i64, (b.z + b.d) as i64);
                 let slot_z = |z: i64| -WALL_DEPTH / 2.0 + z as f32 * STUD;
+                let row_height = m.kind.height();
+                // Per grid row, so faces beside a taller neighbour are culled row by row.
+                let row_y = |r: i64| (y0 + (r - r0) as f32 * row_height, y0 + (r - r0 + 1) as f32 * row_height);
                 for c in c0..c1 {
                     let (xa, xb) = ((c as f32 * STUD).max(x0), ((c + 1) as f32 * STUD).min(x1));
-                    if !occupied(c, r0, s0 - 1) {
-                        quad(
-                            [xa, y0, z0],
-                            [xb, y0, z0],
-                            [xb, y1, z0],
-                            [xa, y1, z0],
-                            [0.0, 0.0, -1.0],
-                        );
-                    }
-                    if !occupied(c, r0, s1) {
-                        quad(
-                            [xa, y0, z1],
-                            [xb, y0, z1],
-                            [xb, y1, z1],
-                            [xa, y1, z1],
-                            [0.0, 0.0, 1.0],
-                        );
+                    for r in r0..r1 {
+                        let (ya, yb) = row_y(r);
+                        if !occupied(c, r, s0 - 1) {
+                            quad([xa, ya, z0], [xb, ya, z0], [xb, yb, z0], [xa, yb, z0], [0.0, 0.0, -1.0]);
+                        }
+                        if !occupied(c, r, s1) {
+                            quad([xa, ya, z1], [xb, ya, z1], [xb, yb, z1], [xa, yb, z1], [0.0, 0.0, 1.0]);
+                        }
                     }
                     for z in s0..s1 {
                         let (za, zb) = (slot_z(z), slot_z(z + 1));
@@ -212,36 +206,21 @@ pub fn build(m: &Mosaic, studs: bool) -> Vec<Tri> {
                                 stud_bases.push([(c as f32 + 0.5) * STUD, y0, (za + zb) / 2.0]);
                             }
                         }
-                        if !occupied(c, r0 + 1, z) {
-                            quad(
-                                [xa, y1, za],
-                                [xb, y1, za],
-                                [xb, y1, zb],
-                                [xa, y1, zb],
-                                [0.0, 1.0, 0.0],
-                            );
+                        if !occupied(c, r1, z) {
+                            quad([xa, y1, za], [xb, y1, za], [xb, y1, zb], [xa, y1, zb], [0.0, 1.0, 0.0]);
                         }
                     }
                 }
-                for z in s0..s1 {
-                    let (za, zb) = (slot_z(z), slot_z(z + 1));
-                    if !occupied(c0 - 1, r0, z) {
-                        quad(
-                            [x0, y0, za],
-                            [x0, y0, zb],
-                            [x0, y1, zb],
-                            [x0, y1, za],
-                            [-1.0, 0.0, 0.0],
-                        );
-                    }
-                    if !occupied(c1, r0, z) {
-                        quad(
-                            [x1, y0, za],
-                            [x1, y0, zb],
-                            [x1, y1, zb],
-                            [x1, y1, za],
-                            [1.0, 0.0, 0.0],
-                        );
+                for r in r0..r1 {
+                    let (ya, yb) = row_y(r);
+                    for z in s0..s1 {
+                        let (za, zb) = (slot_z(z), slot_z(z + 1));
+                        if !occupied(c0 - 1, r, z) {
+                            quad([x0, ya, za], [x0, ya, zb], [x0, yb, zb], [x0, yb, za], [-1.0, 0.0, 0.0]);
+                        }
+                        if !occupied(c1, r, z) {
+                            quad([x1, ya, za], [x1, ya, zb], [x1, yb, zb], [x1, yb, za], [1.0, 0.0, 0.0]);
+                        }
                     }
                 }
             }

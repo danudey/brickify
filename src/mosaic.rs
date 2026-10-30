@@ -34,13 +34,6 @@ impl PartKind {
         self != PartKind::Tile
     }
 
-    pub fn label(self) -> &'static str {
-        match self {
-            PartKind::Plate => "Plates",
-            PartKind::Brick => "Bricks",
-            PartKind::Tile => "Tiles",
-        }
-    }
 
     /// Available parts as (long side, short side, LDraw file), largest area first.
     fn catalogue(self) -> &'static [(u32, u32, &'static str)] {
@@ -105,11 +98,38 @@ impl PartKind {
     }
 }
 
+/// Which parts a build is made of.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Parts {
+    Plates,
+    Bricks,
+    /// Upright walls only: bricks where three plate rows share a colour, plates elsewhere.
+    Hybrid,
+}
+
+impl Parts {
+    pub fn label(self) -> &'static str {
+        match self {
+            Parts::Plates => "Plates",
+            Parts::Bricks => "Bricks",
+            Parts::Hybrid => "Hybrid",
+        }
+    }
+
+    /// The part whose height is one grid row.
+    pub fn row_kind(self) -> PartKind {
+        match self {
+            Parts::Bricks => PartKind::Brick,
+            Parts::Plates | Parts::Hybrid => PartKind::Plate,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     pub layout: Layout,
-    /// Plates or bricks. (Tiles come from `smooth_top`.)
-    pub kind: PartKind,
+    /// Tiles come from `smooth_top`; hybrid only applies to upright walls.
+    pub parts: Parts,
     /// Use smooth tiles instead of plates wherever nothing sits on top, if that tile exists.
     pub smooth_top: bool,
     /// Width of the build, in studs.
@@ -131,7 +151,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             layout: Layout::Flat,
-            kind: PartKind::Plate,
+            parts: Parts::Plates,
             smooth_top: false,
             width: 32,
             alpha_threshold: 0.5,
@@ -149,7 +169,7 @@ impl Settings {
     pub fn cell_aspect(&self) -> f32 {
         match self.layout {
             Layout::Flat => 1.0,
-            Layout::Upright => self.kind.height() / STUD,
+            Layout::Upright => self.parts.row_kind().height() / STUD,
         }
     }
 }
@@ -201,10 +221,10 @@ impl Mosaic {
             }
         }
         // A flat mosaic's picture layer is its top, so smooth means tiles throughout.
-        let kind = if s.layout == Layout::Flat && s.smooth_top && s.kind == PartKind::Plate {
-            PartKind::Tile
-        } else {
-            s.kind
+        let kind = match (s.layout, s.parts) {
+            (Layout::Flat, Parts::Bricks) => PartKind::Brick,
+            (Layout::Flat, _) if s.smooth_top => PartKind::Tile,
+            (_, parts) => parts.row_kind(),
         };
         let bricks = match s.layout {
             Layout::Flat => {
@@ -218,8 +238,11 @@ impl Mosaic {
                 bricks
             }
             Layout::Upright => {
-                let wall = merge_wall(&cells, cols, rows, s.kind, s.backing);
-                let wall = repair_wall(wall, cols, rows, s.kind);
+                let wall = match s.parts {
+                    Parts::Hybrid => merge_hybrid_wall(&cells, cols, rows),
+                    _ => merge_wall(&cells, cols, rows, kind, s.backing),
+                };
+                let wall = repair_wall(wall, cols, rows);
                 if s.smooth_top { smooth_wall_tops(wall, cols, rows) } else { wall }
             }
         };
@@ -783,21 +806,19 @@ fn bridge(
 /// Upright counterpart of [`repair`]. Wall parts only hold onto the rows above and below,
 /// so a loose join between two neighbouring cells is fixed by re-splitting that row, or
 /// the row above or below, so that one part spans both columns.
-fn repair_wall(mut bricks: Vec<Brick>, cols: u32, rows: u32, kind: PartKind) -> Vec<Brick> {
+fn repair_wall(mut bricks: Vec<Brick>, cols: u32, rows: u32) -> Vec<Brick> {
     const MAX_REPAIRS: usize = 400;
-    let lengths = |d: u32| -> Vec<(u32, &'static str)> {
-        let mut l: Vec<_> = kind
-            .catalogue()
-            .iter()
-            .filter(|p| p.1 == d)
-            .map(|p| (p.0, p.2))
-            .collect();
+    let lengths = |kind: PartKind, d: u32| -> Vec<(u32, &'static str)> {
+        let mut l: Vec<_> = kind.catalogue().iter().filter(|p| p.1 == d).map(|p| (p.0, p.2)).collect();
         if d == 2 {
             l.push((1, kind.part_for(2, 1)));
         }
         l
     };
+    /// Attempts without fewer groups before a stuck brick is turned into plates.
+    const PATIENCE: usize = 30;
     let mut best = (usize::MAX, bricks.clone());
+    let mut since_improvement = 0;
     let mut seed = 0x9E37_79B9_7F4A_7C15u64;
     let mut random = move || {
         seed ^= seed << 13;
@@ -810,6 +831,9 @@ fn repair_wall(mut bricks: Vec<Brick>, cols: u32, rows: u32, kind: PartKind) -> 
         let group_count = (0..bricks.len()).filter(|&i| groups.find(i) == i).count();
         if group_count < best.0 {
             best = (group_count, bricks.clone());
+            since_improvement = 0;
+        } else {
+            since_improvement += 1;
         }
         let at = |c: u32, r: u32, z: u32| occupant[((r * cols + c) * 2 + z) as usize];
         // Loose joins can only be sideways: a part always holds onto the one below it.
@@ -825,9 +849,8 @@ fn repair_wall(mut bricks: Vec<Brick>, cols: u32, rows: u32, kind: PartKind) -> 
         if loose.is_empty() {
             break;
         }
-        let (c, r) = loose[random() as usize % loose.len()];
         // Rows and depth slots where one part could span columns c and c + 1.
-        let options: Vec<(usize, usize)> =
+        let options_at = |c: u32, r: u32| -> Vec<(usize, usize)> {
             [Some(r), r.checked_sub(1), (r + 1 < rows).then_some(r + 1)]
                 .into_iter()
                 .flatten()
@@ -838,19 +861,53 @@ fn repair_wall(mut bricks: Vec<Brick>, cols: u32, rows: u32, kind: PartKind) -> 
                         && q != usize::MAX
                         && p != q
                         && bricks[p].colour == bricks[q].colour
-                        && (bricks[p].z, bricks[p].d) == (bricks[q].z, bricks[q].d)
+                        && bricks[p].kind == bricks[q].kind
+                        && (bricks[p].row, bricks[p].h, bricks[p].z, bricks[p].d)
+                            == (bricks[q].row, bricks[q].h, bricks[q].z, bricks[q].d)
                 })
+                .collect()
+        };
+        // Prefer a loose join that re-splitting can fix, starting from a random one.
+        let first = random() as usize % loose.len();
+        let fixable = (0..loose.len())
+            .map(|i| loose[(first + i) % loose.len()])
+            .map(|(c, r)| (c, r, options_at(c, r)))
+            .find(|(_, _, options)| !options.is_empty())
+            .filter(|_| since_improvement < PATIENCE);
+        let Some((c, _, options)) = fixable else {
+            // Re-splitting can't fix it, or keeps failing. A hybrid brick beside a plate is
+            // often why: turn the bricks at a loose join back into plates, which give later
+            // repairs room to work.
+            since_improvement = 0;
+            // Only where both cells share a colour: no part can ever bridge two colours.
+            let Some(&(c, r)) = (0..loose.len())
+                .map(|i| &loose[(first + i) % loose.len()])
+                .filter(|&&(c, r)| bricks[at(c, r, 0)].colour == bricks[at(c + 1, r, 0)].colour)
+                .find(|&&(c, r)| [at(c, r, 0), at(c + 1, r, 0)].iter().any(|&i| bricks[i].h > 1))
+            else {
+                break; // e.g. a colour change in a one-row-thick stroke: no part can span it
+            };
+            let mut stuck: Vec<usize> = [at(c, r, 0), at(c + 1, r, 0)]
+                .into_iter()
+                .filter(|&i| i != usize::MAX && bricks[i].h > 1)
                 .collect();
-        if options.is_empty() {
-            continue; // e.g. a colour change in a one-row-thick stroke: no part can span it
-        }
+            stuck.sort_unstable();
+            stuck.dedup();
+            for &i in stuck.iter().rev() {
+                let brick = bricks.swap_remove(i);
+                let plate_lengths = lengths(PartKind::Plate, brick.d);
+                for row in brick.row..brick.row + brick.h {
+                    for (col, w, part) in split_run(brick.col, brick.col + brick.w, &plate_lengths, |_| false) {
+                        bricks.push(Brick { col, row, w, h: 1, part, kind: PartKind::Plate, ..brick.clone() });
+                    }
+                }
+            }
+            continue;
+        };
         let (p, q) = options[random() as usize % options.len()];
         let template = bricks[p].clone();
-        let (start, end) = (
-            bricks[p].col.min(bricks[q].col),
-            (bricks[p].col + bricks[p].w).max(bricks[q].col + bricks[q].w),
-        );
-        let lengths = lengths(template.d);
+        let (start, end) = (bricks[p].col.min(bricks[q].col), (bricks[p].col + bricks[p].w).max(bricks[q].col + bricks[q].w));
+        let lengths = lengths(template.kind, template.d);
         // A part spanning c and c + 1, inside start..end; usually the longest, sometimes another.
         let mut spans: Vec<(u32, u32, &'static str)> = lengths
             .iter()
@@ -1018,6 +1075,62 @@ fn merge_wall(
     bricks
 }
 
+/// Hybrid upright wall on a grid of plate-height rows. The rows are grouped into bands of
+/// three, aligned across the whole wall so bricks line up into long runs. Within a band,
+/// each column whose three cells share a colour gets a brick; the rest get plates, row by
+/// row. Built from the bottom up, keeping part ends off the seams of the row below as in
+/// [`merge_wall`]. All three band alignments are tried and the one with fewest parts wins.
+fn merge_hybrid_wall(cells: &[Option<u16>], cols: u32, rows: u32) -> Vec<Brick> {
+    (0..BRICK_ROWS)
+        .map(|offset| merge_hybrid_bands(cells, cols, rows, offset))
+        .min_by_key(Vec::len)
+        .expect("three alignments")
+}
+
+/// Plate rows per brick.
+const BRICK_ROWS: u32 = 3;
+
+/// [`merge_hybrid_wall`] with bands starting `offset` rows above the bottom row.
+fn merge_hybrid_bands(cells: &[Option<u16>], cols: u32, rows: u32, offset: u32) -> Vec<Brick> {
+    let lengths = |kind: PartKind| -> Vec<(u32, &'static str)> {
+        kind.catalogue().iter().filter(|p| p.1 == 1).map(|p| (p.0, p.2)).collect()
+    };
+    let (plates, bricks_1xn) = (lengths(PartKind::Plate), lengths(PartKind::Brick));
+    let at = |c: u32, r: u32| (r * cols + c) as usize;
+    let mut used = vec![false; cells.len()];
+    // Seams per row: seams[r][c] is true where a part in row r starts or ends at column c.
+    let mut seams = vec![vec![false; cols as usize + 1]; rows as usize + 1];
+    let mut bricks = Vec::new();
+    let mut place = |bricks: &mut Vec<Brick>, used: &mut Vec<bool>, row: u32, h: u32, kind: PartKind, run: &[Option<u16>], lengths: &[(u32, &'static str)]| {
+        let below = seams[(row + h) as usize].clone();
+        for (start, end, colour) in runs(run) {
+            for (col, w, part) in split_run(start, end, lengths, |x| below[x as usize]) {
+                for r in row..row + h {
+                    for c in col..col + w {
+                        used[at(c, r)] = true;
+                    }
+                    seams[r as usize][col as usize] = true;
+                    seams[r as usize][(col + w) as usize] = true;
+                }
+                bricks.push(Brick { col, row, w, h, colour, part, kind, layer: 0, z: 0, d: 1 });
+            }
+        }
+    };
+    for r in (0..rows).rev() {
+        let band_bottom = r + offset + 1 <= rows && (rows - 1 - offset - r) % BRICK_ROWS == 0 && r + 1 >= BRICK_ROWS;
+        if band_bottom {
+            let top = r + 1 - BRICK_ROWS;
+            let solid: Vec<Option<u16>> = (0..cols)
+                .map(|c| cells[at(c, r)].filter(|&colour| (top..r).all(|rr| cells[at(c, rr)] == Some(colour))))
+                .collect();
+            place(&mut bricks, &mut used, top, BRICK_ROWS, PartKind::Brick, &solid, &bricks_1xn);
+        }
+        let free: Vec<Option<u16>> = (0..cols).map(|c| if used[at(c, r)] { None } else { cells[at(c, r)] }).collect();
+        place(&mut bricks, &mut used, r, 1, PartKind::Plate, &free, &plates);
+    }
+    bricks
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1045,8 +1158,8 @@ mod tests {
         SourceImage { width, height, rgba }
     }
 
-    pub(crate) fn wall_settings(kind: PartKind) -> Settings {
-        Settings { layout: Layout::Upright, kind, width: 24, ..Settings::default() }
+    pub(crate) fn wall_settings(parts: Parts) -> Settings {
+        Settings { layout: Layout::Upright, parts, width: 24, ..Settings::default() }
     }
 
     /// For each part, whether any part sits directly on top of it.
@@ -1077,7 +1190,7 @@ mod tests {
     #[test]
     fn smooth_wall_tiles_only_uncovered_plates() {
         for backing in [None, Some(0)] {
-            let s = Settings { smooth_top: true, backing, ..wall_settings(PartKind::Plate) };
+            let s = Settings { smooth_top: true, backing, ..wall_settings(Parts::Plates) };
             let m = Mosaic::build(&test_image(), &s);
             let covered = covered(&m);
             let mut tiles = 0;
@@ -1101,8 +1214,62 @@ mod tests {
 
     #[test]
     fn smooth_top_leaves_brick_walls_alone() {
-        let s = Settings { smooth_top: true, ..wall_settings(PartKind::Brick) };
+        let s = Settings { smooth_top: true, ..wall_settings(Parts::Bricks) };
         let m = Mosaic::build(&test_image(), &s);
         assert!(m.bricks.iter().all(|b| b.kind == PartKind::Brick));
+    }
+
+    /// Every picture cell is covered by exactly one part at the front (or in the picture
+    /// layer), parts match their cells' colours, and no part covers an empty cell.
+    fn assert_covers_picture(m: &Mosaic) {
+        let mut count = vec![0; m.cells.len()];
+        for b in m.bricks.iter().filter(|b| b.layer == 0 && b.z == 0) {
+            for r in b.row..b.row + b.h {
+                for c in b.col..b.col + b.w {
+                    let i = (r * m.cols + c) as usize;
+                    count[i] += 1;
+                    assert_eq!(m.cells[i], Some(b.colour), "part {} at {c},{r} doesn't match its cell", b.part);
+                }
+            }
+        }
+        for (i, cell) in m.cells.iter().enumerate() {
+            assert_eq!(count[i], cell.is_some() as i32, "cell {} covered {} times", i, count[i]);
+        }
+    }
+
+    #[test]
+    fn every_mode_covers_the_picture_exactly_once() {
+        for layout in [Layout::Flat, Layout::Upright] {
+            for parts in [Parts::Plates, Parts::Bricks, Parts::Hybrid] {
+                for smooth_top in [false, true] {
+                    for (backing, border) in [(None, None), (Some(0), None), (None, Some(0)), (Some(0), Some(0))] {
+                        let s = Settings { layout, parts, smooth_top, backing, border, width: 30, ..Settings::default() };
+                        assert_covers_picture(&Mosaic::build(&test_image(), &s));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn hybrid_uses_bricks_for_solid_areas_and_fewer_pieces() {
+        let image = test_image();
+        let plates = Mosaic::build(&image, &Settings { border: Some(0), backing: None, ..wall_settings(Parts::Plates) });
+        let hybrid = Mosaic::build(&image, &Settings { border: Some(0), backing: None, ..wall_settings(Parts::Hybrid) });
+        assert_eq!(plates.cells, hybrid.cells, "same picture grid");
+        let bricks = hybrid.bricks.iter().filter(|b| b.kind == PartKind::Brick).count();
+        assert!(bricks > 0);
+        for b in &hybrid.bricks {
+            assert_eq!(b.h, if b.kind == PartKind::Brick { 3 } else { 1 });
+        }
+        println!("hybrid {} pieces vs plates {}", hybrid.bricks.len(), plates.bricks.len());
+        assert!(
+            hybrid.bricks.len() * 100 < plates.bricks.len() * 85,
+            "hybrid {} pieces vs plates {}",
+            hybrid.bricks.len(),
+            plates.bricks.len()
+        );
+        let (groups, islands, _) = hybrid.connectivity();
+        assert_eq!(groups, islands);
     }
 }
