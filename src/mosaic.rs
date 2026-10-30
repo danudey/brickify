@@ -117,6 +117,10 @@ pub struct Settings {
     pub background: Option<u16>,
     /// Flat layout only: add a layer of plates underneath to hold everything together.
     pub backing: Option<u16>,
+    /// Outline the picture with this colour. Holds upright walls together.
+    pub border: Option<u16>,
+    /// Border thickness, in studs.
+    pub border_width: u32,
     pub enabled_colours: Vec<u16>,
 }
 
@@ -129,6 +133,8 @@ impl Default for Settings {
             alpha_threshold: 0.5,
             background: None,
             backing: Some(0),
+            border: None,
+            border_width: 1,
             enabled_colours: crate::palette::default_enabled(),
         }
     }
@@ -177,7 +183,19 @@ impl Mosaic {
         let cols = s.width.max(1);
         let cell_px = src.width as f32 / cols as f32;
         let rows = ((src.height as f32 / (cell_px * s.cell_aspect())).round() as u32).max(1);
-        let cells = sample(src, cols, rows, s);
+        let mut cells = sample(src, cols, rows, s);
+        let (mut cols, mut rows) = (cols, rows);
+        if let Some(colour) = s.border {
+            // Rows of an upright wall are shorter than a stud is wide, so use more of them.
+            let across = s.border_width.max(1);
+            let down = ((across as f32 / s.cell_aspect()).round() as u32).max(1);
+            (cells, cols, rows) = add_border(&cells, cols, rows, colour, across, down);
+        }
+        if let Some(background) = s.background {
+            for cell in &mut cells {
+                cell.get_or_insert(background);
+            }
+        }
         let bricks = match s.layout {
             Layout::Flat => {
                 let mut bricks = merge_flat(&cells, cols, rows, s.kind, 0);
@@ -370,10 +388,54 @@ fn sample(src: &SourceImage, cols: u32, rows: u32, s: &Settings) -> Vec<Option<u
             } else {
                 None
             };
-            out.push(colour.or(s.background));
+            out.push(colour);
         }
     }
     out
+}
+
+/// Grows the grid by a border of `across` columns and `down` rows on each side, and fills
+/// the empty cells near the picture (within a rounded outline) with `colour`.
+fn add_border(
+    cells: &[Option<u16>],
+    cols: u32,
+    rows: u32,
+    colour: u16,
+    across: u32,
+    down: u32,
+) -> (Vec<Option<u16>>, u32, u32) {
+    let (new_cols, new_rows) = (cols + 2 * across, rows + 2 * down);
+    let mut out = vec![None; (new_cols * new_rows) as usize];
+    for r in 0..rows {
+        for c in 0..cols {
+            out[((r + down) * new_cols + c + across) as usize] = cells[(r * cols + c) as usize];
+        }
+    }
+    // An ellipse a little over the border size: it includes diagonal neighbours, so the
+    // outline never breaks into pieces that only touch at corners.
+    let (rx, ry) = (across as f32 + 0.5, down as f32 + 0.5);
+    let near_picture = |c: i64, r: i64| {
+        (-(down as i64)..=down as i64).any(|dy| {
+            (-(across as i64)..=across as i64).any(|dx| {
+                let (x, y) = (c + dx, r + dy);
+                (dx as f32 / rx).powi(2) + (dy as f32 / ry).powi(2) <= 1.0
+                    && x >= 0
+                    && y >= 0
+                    && x < new_cols as i64
+                    && y < new_rows as i64
+                    && out[(y * new_cols as i64 + x) as usize].is_some()
+            })
+        })
+    };
+    let border: Vec<usize> = (0..new_rows as i64)
+        .flat_map(|r| (0..new_cols as i64).map(move |c| (c, r)))
+        .filter(|&(c, r)| out[(r * new_cols as i64 + c) as usize].is_none() && near_picture(c, r))
+        .map(|(c, r)| (r * new_cols as i64 + c) as usize)
+        .collect();
+    for i in border {
+        out[i] = Some(colour);
+    }
+    (out, new_cols, new_rows)
 }
 
 /// Greedy rectangle packing: at each free cell, place the largest part that fits.

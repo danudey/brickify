@@ -19,7 +19,7 @@ trunk build --release        # static site in dist/, host it anywhere
 ## Command line (no window)
 
 ```sh
-brickify IMAGE --width 48 [--layout flat|upright] [--parts plate|brick|tile] [--no-backing] --export out.ldr
+brickify IMAGE --width 48 [--layout flat|upright] [--parts plate|brick|tile] [--no-backing] [--border STUDS] --export out.ldr
 ```
 
 The export type comes from the extension: `.ldr`, `.obj` or `.csv`.
@@ -31,9 +31,14 @@ The export type comes from the extension: `.ldr`, `.obj` or `.csv`.
 2. Cells with less than the "min. coverage" of opaque pixels stay empty. Other cells get
    the nearest enabled LEGO colour (in CIE Lab space).
 3. Same-coloured cells are merged into the largest parts that fit. Upright walls avoid seams
-   directly above the seams below. Flat mosaics get an optional plate backing layer, tiled
-   column-first so its seams cross the picture layer.
-4. Open the `.ldr` file in Studio, LeoCAD or LDView to see the real parts and build steps.
+   directly above the seams below, and can get a hidden back layer that bridges colour
+   changes. Flat mosaics get an optional plate backing layer placed so its plates span the
+   picture layer's seams. A repair pass then re-tiles any spot where parts don't connect.
+4. An optional border outlines the picture. In an upright wall, parts grip the rows above
+   and below, so the border holds loose parts and colour changes together without a back
+   layer. In a flat mosaic it is only a frame: parts side by side don't grip each other.
+5. The sidebar reports whether every part is connected; loose parts are outlined in red.
+6. Open the `.ldr` file in Studio, LeoCAD or LDView to see the real parts and build steps.
 
 ## Source layout
 

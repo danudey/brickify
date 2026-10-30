@@ -13,7 +13,8 @@ use mosaic::Settings;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use mosaic::{Layout, PartKind};
     const USAGE: &str = "usage: brickify [IMAGE] [--width STUDS] [--layout flat|upright] \
-                         [--parts plate|brick|tile] [--no-backing] [--export OUT.ldr|.obj|.csv]";
+                         [--parts plate|brick|tile] [--no-backing] [--border STUDS] \
+                         [--export OUT.ldr|.obj|.csv]";
     let mut settings = Settings::default();
     let mut input = None;
     let mut export_to = None;
@@ -36,6 +37,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             "--no-backing" => settings.backing = None,
+            "--border" => {
+                settings.border = Some(0);
+                settings.border_width = value()?.parse()?;
+            }
             "--export" => export_to = Some(value()?),
             "-h" | "--help" => {
                 println!("{USAGE}");
