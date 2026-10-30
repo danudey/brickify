@@ -1,0 +1,49 @@
+# Brickify
+
+Turn an SVG or PNG into a 2D LEGO build: a flat mosaic (studs up) or an upright wall.
+Exports LDraw (`.ldr`), a coloured 3D model (`.obj`) and a parts list (`.csv`).
+
+## Run the desktop app
+
+```sh
+cargo run --release -- ../calico.svg
+```
+
+## Run the web version
+
+```sh
+trunk serve --release        # then open http://127.0.0.1:8080
+trunk build --release        # static site in dist/, host it anywhere
+```
+
+## Command line (no window)
+
+```sh
+brickify IMAGE --width 48 [--layout flat|upright] [--parts plate|brick|tile] [--no-backing] --export out.ldr
+```
+
+The export type comes from the extension: `.ldr`, `.obj` or `.csv`.
+
+## How it works
+
+1. The image is rendered (SVGs at 2048 px) and averaged over a grid, one cell per stud.
+   Upright walls use cells 1.2× (bricks) or 0.4× (plates) as tall as they are wide.
+2. Cells with less than the "min. coverage" of opaque pixels stay empty. Other cells get
+   the nearest enabled LEGO colour (in CIE Lab space).
+3. Same-coloured cells are merged into the largest parts that fit. Upright walls avoid seams
+   directly above the seams below. Flat mosaics get an optional plate backing layer, tiled
+   column-first so its seams cross the picture layer.
+4. Open the `.ldr` file in Studio, LeoCAD or LDView to see the real parts and build steps.
+
+## Source layout
+
+| File | Purpose |
+|---|---|
+| `src/source.rs` | SVG / PNG / JPEG loading |
+| `src/palette.rs` | LDraw colours and colour matching |
+| `src/mosaic.rs` | Grid sampling and part merging |
+| `src/geometry.rs` | 3D triangles for the preview and OBJ |
+| `src/export.rs` | LDraw, OBJ and CSV writers |
+| `src/view3d.rs` | The 3D preview |
+| `src/app.rs` | The user interface |
+| `src/platform.rs` | Open/save on desktop and in the browser |
