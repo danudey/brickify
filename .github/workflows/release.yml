@@ -68,7 +68,9 @@ permissions:
 
 env:
   WORKING_DIRECTORY: "."
-  TOOLCHAIN: "stable"
+  # Not `TOOLCHAIN`: Windows env vars ignore case, and that name hides the
+  # `toolchain` variable dtolnay/rust-toolchain sets for its own script.
+  RUST_TOOLCHAIN: "stable"
   # The [[bin]] target name, and the stem of every archive.
   BINARY_NAME: "brickify"
   # Files copied into every archive alongside the binary. Space-separated.
@@ -134,7 +136,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
-          toolchain: ${{ env.TOOLCHAIN }}
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -273,7 +275,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
-          toolchain: ${{ env.TOOLCHAIN }}
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: aarch64-apple-darwin, x86_64-apple-darwin
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2

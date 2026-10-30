@@ -21,7 +21,7 @@ name: codequality
 #        panic = "warn"
 #      Putting it in Cargo.toml rather than in this file's flags means
 #      developers see the same lints locally.
-#   3. `TOOLCHAIN`. Clippy gains lints with each release, so a floating
+#   3. `RUST_TOOLCHAIN`. Clippy gains lints with each release, so a floating
 #      `stable` can turn a green main branch red with no commit behind it.
 #      Pin it to an exact version if that matters more than currency.
 #
@@ -52,7 +52,7 @@ concurrency:
 
 env:
   WORKING_DIRECTORY: "."
-  TOOLCHAIN: "stable"
+  RUST_TOOLCHAIN: "stable"
   CARGO_TERM_COLOR: always
 
 jobs:
@@ -75,7 +75,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
-          toolchain: ${{ env.TOOLCHAIN }}
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: clippy
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2

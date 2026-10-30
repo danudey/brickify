@@ -28,7 +28,7 @@ name: CI
 #   1. `WORKING_DIRECTORY`, if Cargo.toml is not at the repository root. For a
 #      workspace, leave it at the workspace root and let `--workspace` do the
 #      walking.
-#   2. `TOOLCHAIN`. `stable` tracks the current release. Set it to an exact
+#   2. `RUST_TOOLCHAIN`. `stable` tracks the current release. Set it to an exact
 #      version ("1.85.0") if the project needs to be reproducible, and add a
 #      `rust-toolchain.toml` if developers should get the same one.
 #   3. The MSRV entry in the test matrix. It has to match `rust-version` in
@@ -61,7 +61,9 @@ concurrency:
 
 env:
   WORKING_DIRECTORY: "."
-  TOOLCHAIN: "stable"
+  # Not `TOOLCHAIN`: Windows env vars ignore case, and that name hides the
+  # `toolchain` variable dtolnay/rust-toolchain sets for its own script.
+  RUST_TOOLCHAIN: "stable"
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   # Debug info roughly triples target/ size and nothing in CI reads it.
@@ -153,7 +155,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
-          toolchain: ${{ env.TOOLCHAIN }}
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2

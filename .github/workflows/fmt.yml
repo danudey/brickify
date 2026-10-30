@@ -9,7 +9,7 @@ name: fmt
 #
 # WHAT TO CHANGE
 #   1. `WORKING_DIRECTORY`, if Cargo.toml is not at the repository root.
-#   2. `TOOLCHAIN`. rustfmt on nightly understands options stable rustfmt
+#   2. `RUST_TOOLCHAIN`. rustfmt on nightly understands options stable rustfmt
 #      ignores (`group_imports`, `imports_granularity`). If rustfmt.toml uses
 #      any of those, set this to `nightly` — stable rustfmt silently ignores
 #      unknown options, so the check would pass while the file is unformatted.
@@ -39,7 +39,7 @@ concurrency:
 
 env:
   WORKING_DIRECTORY: "."
-  TOOLCHAIN: "stable"
+  RUST_TOOLCHAIN: "stable"
   CARGO_TERM_COLOR: always
 
 jobs:
@@ -56,7 +56,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
-          toolchain: ${{ env.TOOLCHAIN }}
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: rustfmt
 
       - name: rustfmt
