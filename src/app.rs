@@ -169,6 +169,16 @@ impl BrickApp {
             .on_hover_text("How much of a stud's area must be covered by the image to place a part there.");
 
         optional_colour(ui, "Fill background", "bg", &mut s.background, 15);
+        let border_tip = match s.layout {
+            Layout::Upright => "An outline around the picture. Parts in a wall grip the rows above and below, \
+                                so the border holds loose parts and colour changes together.",
+            Layout::Flat => "A frame around the picture. In a flat mosaic, parts side by side don't grip \
+                             each other, so only backing plates hold the picture together.",
+        };
+        optional_colour(ui, "Border", "border", &mut s.border, 0).on_hover_text(border_tip);
+        if s.border.is_some() {
+            ui.add(egui::Slider::new(&mut s.border_width, 1..=4).text("border studs"));
+        }
         match s.layout {
             Layout::Flat => optional_colour(ui, "Backing plates", "backing", &mut s.backing, 0)
                 .on_hover_text("A second layer of plates underneath that holds the mosaic together."),
@@ -294,7 +304,10 @@ impl BrickApp {
             let fill = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
             let min = origin + vec2(b.col as f32 * cell.x, b.row as f32 * cell.y);
             let r = Rect::from_min_size(min, vec2(b.w as f32 * cell.x, b.h as f32 * cell.y));
-            painter.rect_filled(r.shrink(0.5), scale * 0.08, fill);
+            // Very dark parts (like LEGO black) get a lighter edge so they stand out from the background.
+            let dark = rgb.iter().map(|&v| v as u32).sum::<u32>() < 3 * 70;
+            let edge = if dark { Stroke::new(1.0, Color32::from_gray(95)) } else { Stroke::NONE };
+            painter.rect(r.shrink(0.5), scale * 0.08, fill, edge, egui::StrokeKind::Inside);
             if loose_cells.contains(&(b.col, b.row)) {
                 let warn = Stroke::new(2.0, Color32::from_rgb(255, 60, 60));
                 painter.rect_stroke(r.shrink(1.0), scale * 0.08, warn, egui::StrokeKind::Inside);
