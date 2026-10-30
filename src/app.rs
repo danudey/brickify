@@ -198,6 +198,17 @@ impl BrickApp {
         ui.add_enabled(s.parts != Parts::Bricks, egui::Checkbox::new(&mut s.smooth_top, "Smooth top (tiles)"))
             .on_hover_text(smooth_tip)
             .on_disabled_hover_text("Only plates can be swapped for tiles: a tile on a brick would add a row.");
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut s.antialias, "Antialiasing").on_hover_text(
+                "Blend colours where a stud covers an edge, for the look of finer detail. \
+                 Off: each stud takes its main colour, so edges stay crisp.",
+            );
+            ui.checkbox(&mut s.dither, "Dithering").on_hover_text(
+                "Mix nearby LEGO colours to approximate gradients. Solid areas stay solid. \
+                 Dithering makes many single-stud parts: an upright wall with a border holds them, \
+                 but a flat mosaic's backing plates can't hold them all.",
+            );
+        });
         ui.add(egui::Slider::new(&mut s.alpha_threshold, 0.05..=0.95).text("min. coverage"))
             .on_hover_text(
                 "How much of a stud's area must be covered by the image to place a part there.",

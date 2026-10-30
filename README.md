@@ -19,17 +19,24 @@ trunk build --release        # static site in dist/, host it anywhere
 ## Command line (no window)
 
 ```sh
-brickify IMAGE --width 48 [--layout flat|upright] [--parts plate|brick|hybrid] [--smooth] [--no-backing] [--border STUDS] --export out.ldr
+brickify IMAGE --width 48 [--layout flat|upright] [--parts plate|brick|hybrid] [--smooth] [--antialias] [--dither] [--no-backing] [--border STUDS] --export out.ldr
 ```
 
 The export type comes from the extension: `.ldr`, `.obj` or `.csv`.
 
 ## How it works
 
-1. The image is rendered (SVGs at 2048 px) and averaged over a grid, one cell per stud.
+1. The image is rendered (SVGs at 2048 px) and sampled over a grid, one cell per stud.
    Upright walls use cells 1.2× (bricks) or 0.4× (plates) as tall as they are wide.
 2. Cells with less than the "min. coverage" of opaque pixels stay empty. Other cells get
-   the nearest enabled LEGO colour (in CIE Lab space).
+   the nearest enabled LEGO colour (in CIE Lab space):
+   - By default each cell takes its dominant colour, so edges stay crisp.
+   - "Antialiasing" averages each cell instead, and blends edge cells towards the
+     background fill or border, for the look of finer detail.
+   - "Dithering" spreads colour error to neighbouring cells (Floyd-Steinberg), so mixes of
+     nearby colours approximate gradients. It only applies in gradients, so solid areas
+     stay solid. It makes many single-stud parts: upright walls with a border hold them, but
+     a flat mosaic's backing plates can't hold them all.
 3. Same-coloured cells are merged into the largest parts that fit. Upright walls avoid seams
    directly above the seams below, and can get a hidden back layer that bridges colour
    changes. Flat mosaics get an optional plate backing layer placed so its plates span the

@@ -1,6 +1,6 @@
 //! Turns a source image into a grid of LEGO colours, then merges cells into real parts.
 
-use crate::palette::Matcher;
+use crate::palette::{Matcher, to_lab};
 use crate::source::SourceImage;
 
 /// LDraw units per stud.
@@ -144,6 +144,10 @@ pub struct Settings {
     pub border: Option<u16>,
     /// Border thickness, in studs.
     pub border_width: u32,
+    /// Blend colours where a stud covers an edge, instead of taking its main colour.
+    pub antialias: bool,
+    /// Mix nearby LEGO colours to approximate gradients and in-between colours.
+    pub dither: bool,
     pub enabled_colours: Vec<u16>,
 }
 
@@ -159,6 +163,8 @@ impl Default for Settings {
             backing: Some(0),
             border: None,
             border_width: 1,
+            antialias: false,
+            dither: false,
             enabled_colours: crate::palette::default_enabled(),
         }
     }
@@ -403,12 +409,41 @@ impl UnionFind {
     }
 }
 
-/// Area-averages the source over each cell and picks the nearest LEGO colour.
+/// What a cell of the source image looks like: its colour (sRGB) and how much of it is opaque.
+struct CellSample {
+    rgb: [f32; 3],
+    coverage: f32,
+}
+
+/// Samples each cell of the source, then picks LEGO colours for those covered enough.
 fn sample(src: &SourceImage, cols: u32, rows: u32, s: &Settings) -> Vec<Option<u16>> {
-    let matcher = Matcher::new(&s.enabled_colours);
+    // With antialiasing, partly covered cells at the outer edge blend towards whatever will
+    // be seen around the picture: the background fill or the border. (A flat mosaic's backing
+    // sits under the picture, so it isn't seen around it.)
+    let surround = s.background.or(s.border);
+    let surround = surround.and_then(crate::palette::by_code).map(|c| c.rgb.map(f32::from));
+    let samples: Vec<CellSample> = sample_cells(src, cols, rows, s.antialias)
+        .into_iter()
+        .map(|cell| match (s.antialias, surround) {
+            (true, Some(bg)) if cell.coverage < 1.0 => {
+                let t = cell.coverage;
+                CellSample { rgb: [0, 1, 2].map(|i| cell.rgb[i] * t + bg[i] * (1.0 - t)), ..cell }
+            }
+            _ => cell,
+        })
+        .collect();
+    let filled: Vec<bool> = samples.iter().map(|c| c.coverage >= s.alpha_threshold && c.coverage > 0.0).collect();
+    quantize(&samples, &filled, cols, rows, &Matcher::new(&s.enabled_colours), s.dither)
+}
+
+/// Colour and coverage of each cell. With `blend`, the colour is the average of the cell
+/// (alpha-weighted); without, it's the cell's dominant colour, so edges stay crisp.
+fn sample_cells(src: &SourceImage, cols: u32, rows: u32, blend: bool) -> Vec<CellSample> {
     let sx = src.width as f32 / cols as f32;
     let sy = src.height as f32 / rows as f32;
     let mut out = Vec::with_capacity((cols * rows) as usize);
+    // Dominant colour: pixels grouped by colour (5 bits per channel), weighted by alpha.
+    let mut groups: std::collections::HashMap<u16, [f64; 4]> = std::collections::HashMap::new();
     for row in 0..rows {
         let y0 = (row as f32 * sy) as u32;
         let y1 = (((row + 1) as f32 * sy).ceil() as u32).clamp(y0 + 1, src.height);
@@ -416,26 +451,111 @@ fn sample(src: &SourceImage, cols: u32, rows: u32, s: &Settings) -> Vec<Option<u
             let x0 = (col as f32 * sx) as u32;
             let x1 = (((col + 1) as f32 * sx).ceil() as u32).clamp(x0 + 1, src.width);
             let mut sum = [0f64; 4];
+            groups.clear();
             for y in y0..y1 {
                 let line = (y * src.width) as usize * 4;
                 for x in x0..x1 {
                     let p = &src.rgba[line + x as usize * 4..][..4];
                     let a = p[3] as f64 / 255.0;
-                    sum[0] += p[0] as f64 * a;
-                    sum[1] += p[1] as f64 * a;
-                    sum[2] += p[2] as f64 * a;
-                    sum[3] += a;
+                    let weighted = [p[0] as f64 * a, p[1] as f64 * a, p[2] as f64 * a, a];
+                    for i in 0..4 {
+                        sum[i] += weighted[i];
+                    }
+                    if !blend && p[3] > 0 {
+                        let key = (p[0] as u16 >> 3) << 10 | (p[1] as u16 >> 3) << 5 | p[2] as u16 >> 3;
+                        let group = groups.entry(key).or_insert([0.0; 4]);
+                        for i in 0..4 {
+                            group[i] += weighted[i];
+                        }
+                    }
                 }
             }
             let n = ((x1 - x0) * (y1 - y0)) as f64;
-            let coverage = (sum[3] / n) as f32;
-            let colour = if coverage >= s.alpha_threshold && sum[3] > 0.0 {
-                let rgb = [sum[0], sum[1], sum[2]].map(|v| (v / sum[3]) as f32);
-                matcher.nearest(rgb)
+            let colour = if blend {
+                sum
             } else {
-                None
+                groups.values().copied().max_by(|a, b| a[3].total_cmp(&b[3])).unwrap_or(sum)
             };
-            out.push(colour);
+            let rgb = if colour[3] > 0.0 { [0, 1, 2].map(|i| (colour[i] / colour[3]) as f32) } else { [0.0; 3] };
+            out.push(CellSample { rgb, coverage: (sum[3] / n) as f32 });
+        }
+    }
+    out
+}
+
+/// Picks the nearest enabled LEGO colour for each filled cell. With `dither`, the colour
+/// error of each cell is spread to its unvisited neighbours (Floyd-Steinberg, in L*a*b*,
+/// alternating direction each row), so mixes of nearby colours approximate gradients.
+/// Dithering is kept to gradients: solid areas (where neighbours share a colour) take the
+/// nearest colour, error isn't spread across edges between different colours, and a cell
+/// only uses colours nearly as close to its original as the best match.
+fn quantize(
+    samples: &[CellSample],
+    filled: &[bool],
+    cols: u32,
+    rows: u32,
+    matcher: &Matcher,
+    dither: bool,
+) -> Vec<Option<u16>> {
+    /// Errors smaller than this (ΔE) aren't spread, so colours that already match a LEGO
+    /// colour well stay solid instead of speckled.
+    const DEAD_ZONE: f32 = 8.0;
+    /// Neighbours whose original colour differs more than this (ΔE) are across an edge.
+    const EDGE: f32 = 20.0;
+    /// How much further (ΔE) than the best match a dithered colour may be from the original.
+    const SLACK: f32 = 12.0;
+    /// Neighbours closer than this (ΔE) count as the same colour.
+    const SAME: f32 = 0.5;
+    let original: Vec<[f32; 3]> = samples.iter().map(|c| to_lab(c.rgb)).collect();
+    let mut target = original.clone();
+    let mut out = vec![None; samples.len()];
+    let distance = |a: [f32; 3], b: [f32; 3]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+    // A cell is in a gradient if a neighbour's colour differs, but not by enough to be an edge.
+    let in_gradient = |i: usize| {
+        let (c, r) = ((i as u32 % cols) as i64, (i as u32 / cols) as i64);
+        [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|&(dc, dr)| {
+            let (nc, nr) = (c + dc, r + dr);
+            if nc < 0 || nr < 0 || nc >= cols as i64 || nr >= rows as i64 {
+                return false;
+            }
+            let n = (nr * cols as i64 + nc) as usize;
+            let d = distance(original[n], original[i]);
+            filled[n] && d > SAME && d <= EDGE
+        })
+    };
+    for r in 0..rows as i64 {
+        let forward = r % 2 == 0;
+        let step: i64 = if forward { 1 } else { -1 };
+        for k in 0..cols as i64 {
+            let c = if forward { k } else { cols as i64 - 1 - k };
+            let i = (r * cols as i64 + c) as usize;
+            if !filled[i] {
+                continue;
+            }
+            let dithered = dither && in_gradient(i);
+            let picked = if dithered {
+                matcher.nearest_lab_near(target[i], original[i], SLACK)
+            } else {
+                matcher.nearest_lab(original[i])
+            };
+            let Some((code, chosen)) = picked else { continue };
+            out[i] = Some(code);
+            let error = [0, 1, 2].map(|j| target[i][j] - chosen[j]);
+            if !dithered || distance(target[i], chosen) < DEAD_ZONE {
+                continue;
+            }
+            for (dc, dr, weight) in [(step, 0, 7.0), (-step, 1, 3.0), (0, 1, 5.0), (step, 1, 1.0)] {
+                let (nc, nr) = (c + dc, r + dr);
+                if nc < 0 || nc >= cols as i64 || nr >= rows as i64 {
+                    continue;
+                }
+                let n = (nr * cols as i64 + nc) as usize;
+                if filled[n] && distance(original[n], original[i]) <= EDGE {
+                    for j in 0..3 {
+                        target[n][j] += error[j] * weight / 16.0;
+                    }
+                }
+            }
         }
     }
     out
@@ -1271,5 +1391,76 @@ mod tests {
         );
         let (groups, islands, _) = hybrid.connectivity();
         assert_eq!(groups, islands);
+    }
+
+    /// An opaque horizontal gradient from yellow to red.
+    fn gradient_image() -> SourceImage {
+        let (width, height) = (240u32, 120u32);
+        let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+        for _ in 0..height {
+            for x in 0..width {
+                let t = x as f32 / (width - 1) as f32;
+                let mix = |a: f32, b: f32| (a + (b - a) * t) as u8;
+                rgba.extend([mix(250.0, 180.0), mix(200.0, 0.0), mix(10.0, 0.0), 255]);
+            }
+        }
+        SourceImage { width, height, rgba }
+    }
+
+    fn colours_used(m: &Mosaic) -> std::collections::BTreeSet<u16> {
+        m.cells.iter().flatten().copied().collect()
+    }
+
+    #[test]
+    fn crisp_sampling_uses_only_the_pictures_own_colours() {
+        let s = Settings { backing: None, width: 30, ..Settings::default() };
+        let matcher = Matcher::new(&s.enabled_colours);
+        let own: std::collections::BTreeSet<u16> = [[180.0, 0.0, 0.0], [30.0, 90.0, 170.0], [250.0, 200.0, 10.0]]
+            .iter()
+            .map(|&rgb| matcher.nearest_lab(to_lab(rgb)).unwrap().0)
+            .collect();
+        let crisp = Mosaic::build(&test_image(), &s);
+        assert!(colours_used(&crisp).is_subset(&own), "{:?} vs {:?}", colours_used(&crisp), own);
+        let blended = Mosaic::build(&test_image(), &Settings { antialias: true, ..s });
+        assert!(!colours_used(&blended).is_subset(&own), "antialiasing should add in-between colours");
+    }
+
+    #[test]
+    fn dithering_follows_a_gradient_more_closely() {
+        let image = gradient_image();
+        let s = Settings { backing: None, width: 40, ..Settings::default() };
+        // Mean colour error of each column (averaged in L*a*b*) against the source.
+        let column_error = |m: &Mosaic| {
+            let mut total = 0.0;
+            for c in 0..m.cols {
+                let mut mean = [0.0f32; 3];
+                for r in 0..m.rows {
+                    let rgb = crate::palette::by_code(m.cell(c, r).unwrap()).unwrap().rgb;
+                    let lab = to_lab(rgb.map(f32::from));
+                    for j in 0..3 {
+                        mean[j] += lab[j] / m.rows as f32;
+                    }
+                }
+                let x = ((c as f32 + 0.5) / m.cols as f32 * image.width as f32) as usize;
+                let p = &image.rgba[x * 4..x * 4 + 3];
+                let source = to_lab([p[0] as f32, p[1] as f32, p[2] as f32]);
+                total += (0..3).map(|j| (mean[j] - source[j]).powi(2)).sum::<f32>().sqrt();
+            }
+            total / m.cols as f32
+        };
+        let plain = Mosaic::build(&image, &s);
+        let dithered = Mosaic::build(&image, &Settings { dither: true, ..s });
+        let (plain_error, dithered_error) = (column_error(&plain), column_error(&dithered));
+        println!("mean column error: plain {plain_error:.1}, dithered {dithered_error:.1}");
+        assert!(dithered_error < plain_error * 0.8);
+    }
+
+    #[test]
+    fn dithering_leaves_solid_colours_alone() {
+        for s in [Settings::default(), wall_settings(Parts::Hybrid)] {
+            let plain = Mosaic::build(&test_image(), &s);
+            let dithered = Mosaic::build(&test_image(), &Settings { dither: true, ..s });
+            assert_eq!(plain.cells, dithered.cells);
+        }
     }
 }
