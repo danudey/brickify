@@ -38,6 +38,7 @@ pub struct BrickApp {
     studs: bool,
     tris_have_studs: bool,
     tab: Tab,
+    colour_order: palette::SortOrder,
     camera: view3d::Camera,
     status: String,
     /// Files picked asynchronously (web) or dropped onto the window arrive here.
@@ -64,6 +65,7 @@ impl BrickApp {
             studs: true,
             tris_have_studs: true,
             tab: Tab::Bricks,
+            colour_order: palette::SortOrder::Family,
             camera: view3d::Camera::flat(),
             status: "Open an SVG or PNG to begin (or drop one onto the window).".into(),
             incoming: Arc::new(Mutex::new(initial)),
@@ -124,6 +126,7 @@ impl BrickApp {
         ui.label(&self.status);
         ui.separator();
 
+        let order = palette::sorted(self.colour_order);
         let s = &mut self.settings;
         ui.label("Size");
         ui.horizontal(|ui| {
@@ -168,21 +171,21 @@ impl BrickApp {
         ui.add(egui::Slider::new(&mut s.alpha_threshold, 0.05..=0.95).text("min. coverage"))
             .on_hover_text("How much of a stud's area must be covered by the image to place a part there.");
 
-        optional_colour(ui, "Fill background", "bg", &mut s.background, 15);
+        optional_colour(ui, "Fill background", "bg", &mut s.background, 15, &order, &s.enabled_colours);
         let border_tip = match s.layout {
             Layout::Upright => "An outline around the picture. Parts in a wall grip the rows above and below, \
                                 so the border holds loose parts and colour changes together.",
             Layout::Flat => "A frame around the picture. In a flat mosaic, parts side by side don't grip \
                              each other, so only backing plates hold the picture together.",
         };
-        optional_colour(ui, "Border", "border", &mut s.border, 0).on_hover_text(border_tip);
+        optional_colour(ui, "Border", "border", &mut s.border, 0, &order, &s.enabled_colours).on_hover_text(border_tip);
         if s.border.is_some() {
             ui.add(egui::Slider::new(&mut s.border_width, 1..=4).text("border studs"));
         }
         match s.layout {
-            Layout::Flat => optional_colour(ui, "Backing plates", "backing", &mut s.backing, 0)
+            Layout::Flat => optional_colour(ui, "Backing plates", "backing", &mut s.backing, 0, &order, &s.enabled_colours)
                 .on_hover_text("A second layer of plates underneath that holds the mosaic together."),
-            Layout::Upright => optional_colour(ui, "Back layer", "backing", &mut s.backing, 0).on_hover_text(
+            Layout::Upright => optional_colour(ui, "Back layer", "backing", &mut s.backing, 0, &order, &s.enabled_colours).on_hover_text(
                 "Makes the wall two studs deep, with hidden parts behind the picture that bridge colour changes.",
             ),
         };
@@ -222,8 +225,21 @@ impl BrickApp {
                     s.enabled_colours.clear();
                 }
             });
-            egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
-                for c in COLOURS {
+            ui.horizontal(|ui| {
+                ui.label("Sort:");
+                ui.radio_value(&mut self.colour_order, palette::SortOrder::Family, "By family");
+                ui.radio_value(&mut self.colour_order, palette::SortOrder::Hue, "By hue");
+            });
+            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                let mut last_family = None;
+                for c in &order {
+                    if self.colour_order == palette::SortOrder::Family {
+                        let family = palette::family(c);
+                        if last_family != Some(family) {
+                            section_heading(ui, palette::FAMILIES[family]);
+                            last_family = Some(family);
+                        }
+                    }
                     let mut on = s.enabled_colours.contains(&c.code);
                     ui.horizontal(|ui| {
                         swatch(ui, c.code);
@@ -443,13 +459,16 @@ fn swatch(ui: &mut egui::Ui, code: u16) {
     );
 }
 
-/// Checkbox plus colour picker for an optional colour setting.
+/// Checkbox plus colour picker for an optional colour setting. The picker lists white,
+/// greys and black first, then the enabled colours, then the rest, each in `order`.
 fn optional_colour(
     ui: &mut egui::Ui,
     label: &str,
     id: &str,
     value: &mut Option<u16>,
     default: u16,
+    order: &[&'static palette::LegoColour],
+    enabled: &[u16],
 ) -> egui::Response {
     ui.horizontal(|ui| {
         let mut on = value.is_some();
@@ -460,13 +479,34 @@ fn optional_colour(
         if let Some(code) = value {
             swatch(ui, *code);
             let name = palette::by_code(*code).map_or("?", |c| c.name);
-            egui::ComboBox::from_id_salt(id).selected_text(name).show_ui(ui, |ui| {
-                for c in COLOURS {
-                    ui.selectable_value(code, c.code, c.name);
+            egui::ComboBox::from_id_salt(id).selected_text(name).height(420.0).show_ui(ui, |ui| {
+                let neutral: Vec<_> = order.iter().filter(|c| palette::is_neutral(c)).collect();
+                let (on, off): (Vec<_>, Vec<_>) = order
+                    .iter()
+                    .filter(|c| !palette::is_neutral(c))
+                    .partition(|c| enabled.contains(&c.code));
+                for (heading, colours) in
+                    [("White, greys and black", neutral), ("Enabled colours", on), ("Other colours", off)]
+                {
+                    if colours.is_empty() {
+                        continue;
+                    }
+                    section_heading(ui, heading);
+                    for c in colours {
+                        ui.horizontal(|ui| {
+                            swatch(ui, c.code);
+                            ui.selectable_value(code, c.code, c.name);
+                        });
+                    }
                 }
             });
         }
         response
     })
     .inner
+}
+
+fn section_heading(ui: &mut egui::Ui, text: &str) {
+    ui.add_space(4.0);
+    ui.label(egui::RichText::new(text).strong().color(TEXT));
 }

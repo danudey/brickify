@@ -145,3 +145,107 @@ pub fn default_enabled() -> Vec<u16> {
         288, 308, 320, 321, 322, 326, 378, 379, 484, 462, 353,
     ]
 }
+
+/// Lightness, chroma and hue angle (degrees) in CIE LCh.
+pub fn lch(rgb: [u8; 3]) -> [f32; 3] {
+    let [l, a, b] = to_lab(rgb.map(f32::from));
+    [l, a.hypot(b), b.atan2(a).to_degrees().rem_euclid(360.0)]
+}
+
+/// Colour families, in display order.
+pub const FAMILIES: &[&str] =
+    &["White, greys and black", "Reds", "Oranges", "Yellows", "Greens", "Turquoises", "Blues", "Purples", "Pinks", "Browns"];
+
+/// Index into [`FAMILIES`], judged from the colour itself because LEGO names are a poor guide.
+pub fn family(c: &LegoColour) -> usize {
+    let [l, chroma, hue] = lch(c.rgb);
+    if chroma < 10.0 {
+        return 0;
+    }
+    match hue {
+        h if h >= 330.0 || h < 20.0 => 8,
+        h if h < 48.0 => 1,
+        // Dull or dark oranges and yellows are browns and tans.
+        h if h < 95.0 && (l < 45.0 || chroma < 32.0) => 9,
+        h if h < 80.0 => 2,
+        h if h < 105.0 => 3,
+        h if h < 170.0 => 4,
+        h if h < 215.0 => 5,
+        h if h < 300.0 => 6,
+        _ => 7,
+    }
+}
+
+pub fn is_neutral(c: &LegoColour) -> bool {
+    family(c) == 0
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SortOrder {
+    /// By family (reds, oranges, …), light to dark within each.
+    Family,
+    /// Around the colour wheel in 15° steps, light to dark within each. Neutrals first.
+    Hue,
+}
+
+/// All colours in the given order.
+pub fn sorted(order: SortOrder) -> Vec<&'static LegoColour> {
+    let mut colours: Vec<_> = COLOURS.iter().collect();
+    let key = |c: &LegoColour| {
+        let [l, _, hue] = lch(c.rgb);
+        let group = match order {
+            SortOrder::Family => family(c),
+            // Start the wheel at red (about 20° in LCh), so pinks come last.
+            SortOrder::Hue if is_neutral(c) => 0,
+            SortOrder::Hue => 1 + ((hue - 20.0).rem_euclid(360.0) / 15.0) as usize,
+        };
+        (group, -(l * 100.0) as i32)
+    };
+    colours.sort_by_key(|c| key(c));
+    colours
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn names(order: SortOrder) -> Vec<&'static str> {
+        sorted(order).iter().map(|c| c.name).collect()
+    }
+
+    fn pos(list: &[&str], name: &str) -> usize {
+        list.iter().position(|n| *n == name).unwrap()
+    }
+
+    #[test]
+    fn family_order_groups_families_light_to_dark() {
+        let list = names(SortOrder::Family);
+        // Each family is one contiguous block, light to dark within it.
+        let colours = sorted(SortOrder::Family);
+        for pair in colours.windows(2) {
+            let (a, b) = (family(pair[0]), family(pair[1]));
+            assert!(a <= b, "{} before {}", pair[0].name, pair[1].name);
+            if a == b {
+                assert!(lch(pair[0].rgb)[0] >= lch(pair[1].rgb)[0], "{} before {}", pair[0].name, pair[1].name);
+            }
+        }
+        assert!(pos(&list, "Bright Light Blue") < pos(&list, "Blue"));
+        assert!(pos(&list, "Blue") < pos(&list, "Dark Blue"));
+        assert!(pos(&list, "Light Green") < pos(&list, "Green"));
+        assert!(pos(&list, "Green") < pos(&list, "Dark Green"));
+        assert_eq!(list[0], "White");
+        assert_eq!(family(by_code(0).unwrap()), 0, "black is a neutral");
+    }
+
+    #[test]
+    fn hue_order_starts_with_neutrals_then_walks_the_wheel() {
+        let colours = sorted(SortOrder::Hue);
+        let neutrals = colours.iter().take_while(|c| is_neutral(c)).count();
+        assert_eq!(neutrals, COLOURS.iter().filter(|c| is_neutral(c)).count());
+        let hues: Vec<f32> =
+            colours[neutrals..].iter().map(|c| (lch(c.rgb)[2] - 20.0).rem_euclid(360.0)).collect();
+        for pair in hues.windows(2) {
+            assert!((pair[0] / 15.0).floor() <= (pair[1] / 15.0).floor());
+        }
+    }
+}
