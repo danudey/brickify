@@ -13,7 +13,7 @@ use mosaic::Settings;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use mosaic::{Layout, PartKind};
     const USAGE: &str = "usage: brickify [IMAGE] [--width STUDS] [--layout flat|upright] \
-                         [--parts plate|brick|tile] [--no-backing] [--border STUDS] \
+                         [--parts plate|brick] [--smooth] [--no-backing] [--border STUDS] \
                          [--export OUT.ldr|.obj|.csv]";
     let mut settings = Settings::default();
     let mut input = None;
@@ -30,13 +30,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             "--parts" => {
-                settings.kind = match value()?.as_str() {
-                    "brick" => PartKind::Brick,
-                    "tile" => PartKind::Tile,
-                    _ => PartKind::Plate,
-                }
+                let parts = value()?;
+                settings.kind = if parts == "brick" { PartKind::Brick } else { PartKind::Plate };
+                // "tile" is kept as shorthand for plates with a smooth top.
+                settings.smooth_top |= parts == "tile";
             }
             "--no-backing" => settings.backing = None,
+            "--smooth" => settings.smooth_top = true,
             "--border" => {
                 settings.border = Some(0);
                 settings.border_width = value()?.parse()?;

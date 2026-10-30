@@ -108,7 +108,10 @@ impl PartKind {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     pub layout: Layout,
+    /// Plates or bricks. (Tiles come from `smooth_top`.)
     pub kind: PartKind,
+    /// Use smooth tiles instead of plates wherever nothing sits on top, if that tile exists.
+    pub smooth_top: bool,
     /// Width of the build, in studs.
     pub width: u32,
     /// Minimum fraction of a cell that must be opaque for it to get a part.
@@ -129,6 +132,7 @@ impl Default for Settings {
         Self {
             layout: Layout::Flat,
             kind: PartKind::Plate,
+            smooth_top: false,
             width: 32,
             alpha_threshold: 0.5,
             background: None,
@@ -196,9 +200,15 @@ impl Mosaic {
                 cell.get_or_insert(background);
             }
         }
+        // A flat mosaic's picture layer is its top, so smooth means tiles throughout.
+        let kind = if s.layout == Layout::Flat && s.smooth_top && s.kind == PartKind::Plate {
+            PartKind::Tile
+        } else {
+            s.kind
+        };
         let bricks = match s.layout {
             Layout::Flat => {
-                let mut bricks = merge_flat(&cells, cols, rows, s.kind, 0);
+                let mut bricks = merge_flat(&cells, cols, rows, kind, 0);
                 if let Some(colour) = s.backing {
                     let backing = merge_backing(&cells, &bricks, cols, rows, colour);
                     let (top, backing) = repair(&cells, bricks, backing, cols, rows);
@@ -209,17 +219,11 @@ impl Mosaic {
             }
             Layout::Upright => {
                 let wall = merge_wall(&cells, cols, rows, s.kind, s.backing);
-                repair_wall(wall, cols, rows, s.kind)
+                let wall = repair_wall(wall, cols, rows, s.kind);
+                if s.smooth_top { smooth_wall_tops(wall, cols, rows) } else { wall }
             }
         };
-        Mosaic {
-            cols,
-            rows,
-            layout: s.layout,
-            kind: s.kind,
-            cells,
-            bricks,
-        }
+        Mosaic { cols, rows, layout: s.layout, kind, cells, bricks }
     }
 
     pub fn cell(&self, col: u32, row: u32) -> Option<u16> {
@@ -876,6 +880,27 @@ fn repair_wall(mut bricks: Vec<Brick>, cols: u32, rows: u32, kind: PartKind) -> 
     best.1
 }
 
+/// Swaps each wall plate with nothing on top of it for a tile of the same size, where that
+/// tile exists. Only fully uncovered plates qualify: a tile has no studs for a part to grip.
+fn smooth_wall_tops(mut bricks: Vec<Brick>, cols: u32, rows: u32) -> Vec<Brick> {
+    let (_, occupant) = part_groups(Layout::Upright, &bricks, cols, rows);
+    for b in &mut bricks {
+        if b.kind != PartKind::Plate {
+            continue;
+        }
+        let covered = b.row > 0
+            && (b.col..b.col + b.w)
+                .any(|c| (b.z..b.z + b.d).any(|z| occupant[(((b.row - 1) * cols + c) * 2 + z) as usize] != usize::MAX));
+        let (long, short) = (b.w.max(b.d), b.w.min(b.d));
+        let tile = PartKind::Tile.catalogue().iter().find(|t| t.0 == long && t.1 == short);
+        if let (false, Some(&(_, _, part))) = (covered, tile) {
+            b.kind = PartKind::Tile;
+            b.part = part;
+        }
+    }
+    bricks
+}
+
 /// Splits columns `start..end` into parts with the given lengths (longest first), avoiding
 /// part ends where `avoid` is true unless nothing else fits.
 fn split_run(
@@ -991,4 +1016,93 @@ fn merge_wall(
         seams_below = seams;
     }
     bricks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A test picture: a filled disc split into a red left half and a blue right half,
+    /// with a horizontal yellow band, on a transparent background.
+    pub(crate) fn test_image() -> SourceImage {
+        let (width, height) = (200u32, 160u32);
+        let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+        for y in 0..height {
+            for x in 0..width {
+                let (dx, dy) = (x as f32 - 100.0, y as f32 - 80.0);
+                let inside = dx * dx / (95.0 * 95.0) + dy * dy / (75.0 * 75.0) <= 1.0;
+                let rgb = if (70..90).contains(&y) {
+                    [250, 200, 10]
+                } else if x < 100 {
+                    [180, 0, 0]
+                } else {
+                    [30, 90, 170]
+                };
+                rgba.extend(rgb);
+                rgba.push(if inside { 255 } else { 0 });
+            }
+        }
+        SourceImage { width, height, rgba }
+    }
+
+    pub(crate) fn wall_settings(kind: PartKind) -> Settings {
+        Settings { layout: Layout::Upright, kind, width: 24, ..Settings::default() }
+    }
+
+    /// For each part, whether any part sits directly on top of it.
+    fn covered(m: &Mosaic) -> Vec<bool> {
+        let (_, occupant) = part_groups(m.layout, &m.bricks, m.cols, m.rows);
+        m.bricks
+            .iter()
+            .map(|b| {
+                b.row > 0
+                    && (b.col..b.col + b.w).any(|c| {
+                        (b.z..b.z + b.d)
+                            .any(|z| occupant[(((b.row - 1) * m.cols + c) * 2 + z) as usize] != usize::MAX)
+                    })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn smooth_flat_mosaic_uses_tiles_for_the_picture() {
+        let s = Settings { smooth_top: true, ..Settings::default() };
+        let m = Mosaic::build(&test_image(), &s);
+        assert!(m.bricks.iter().filter(|b| b.layer == 0).all(|b| b.kind == PartKind::Tile));
+        assert!(m.bricks.iter().filter(|b| b.layer == 1).all(|b| b.kind == PartKind::Plate));
+        let (groups, islands, _) = m.connectivity();
+        assert_eq!(groups, islands);
+    }
+
+    #[test]
+    fn smooth_wall_tiles_only_uncovered_plates() {
+        for backing in [None, Some(0)] {
+            let s = Settings { smooth_top: true, backing, ..wall_settings(PartKind::Plate) };
+            let m = Mosaic::build(&test_image(), &s);
+            let covered = covered(&m);
+            let mut tiles = 0;
+            for (b, &covered) in m.bricks.iter().zip(&covered) {
+                let tile_exists = PartKind::Tile
+                    .catalogue()
+                    .iter()
+                    .any(|t| t.0 == b.w.max(b.d) && t.1 == b.w.min(b.d));
+                match b.kind {
+                    PartKind::Tile => {
+                        assert!(!covered, "tile at {},{} has a part on top", b.col, b.row);
+                        tiles += 1;
+                    }
+                    PartKind::Plate => assert!(covered || !tile_exists, "plate at {},{} could be a tile", b.col, b.row),
+                    PartKind::Brick => unreachable!(),
+                }
+            }
+            assert!(tiles > 0);
+        }
+    }
+
+    #[test]
+    fn smooth_top_leaves_brick_walls_alone() {
+        let s = Settings { smooth_top: true, ..wall_settings(PartKind::Brick) };
+        let m = Mosaic::build(&test_image(), &s);
+        assert!(m.bricks.iter().all(|b| b.kind == PartKind::Brick));
+    }
 }

@@ -177,18 +177,19 @@ impl BrickApp {
             ui.radio_value(&mut s.layout, Layout::Flat, "Flat mosaic");
             ui.radio_value(&mut s.layout, Layout::Upright, "Upright wall");
         });
-        if s.layout == Layout::Upright && s.kind == PartKind::Tile {
-            s.kind = PartKind::Brick;
-        }
         ui.horizontal(|ui| {
-            let kinds: &[PartKind] = match s.layout {
-                Layout::Flat => &[PartKind::Plate, PartKind::Tile, PartKind::Brick],
-                Layout::Upright => &[PartKind::Brick, PartKind::Plate],
-            };
-            for &k in kinds {
+            for k in [PartKind::Plate, PartKind::Brick] {
                 ui.radio_value(&mut s.kind, k, k.label());
             }
         });
+        let smooth_tip = match s.layout {
+            Layout::Flat => "Use smooth tiles for the picture instead of plates with studs.",
+            Layout::Upright => "Use a smooth tile instead of a plate wherever nothing sits on top of it \
+                                (when a tile that size exists).",
+        };
+        ui.add_enabled(s.kind == PartKind::Plate, egui::Checkbox::new(&mut s.smooth_top, "Smooth top (tiles)"))
+            .on_hover_text(smooth_tip)
+            .on_disabled_hover_text("Only plates can be swapped for tiles: a tile on a brick would add a row.");
         ui.add(egui::Slider::new(&mut s.alpha_threshold, 0.05..=0.95).text("min. coverage"))
             .on_hover_text(
                 "How much of a stud's area must be covered by the image to place a part there.",
