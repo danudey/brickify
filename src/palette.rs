@@ -135,12 +135,20 @@ impl Matcher {
 
     /// The nearest colour to a L*a*b* value, with that colour's own L*a*b* value.
     pub fn nearest_lab(&self, lab: [f32; 3]) -> Option<(u16, [f32; 3])> {
-        self.entries.iter().min_by(|a, b| dist2(a.1, lab).total_cmp(&dist2(b.1, lab))).copied()
+        self.entries
+            .iter()
+            .min_by(|a, b| dist2(a.1, lab).total_cmp(&dist2(b.1, lab)))
+            .copied()
     }
 
     /// The nearest colour to `target` among those within `slack` (ΔE) of the best match for
     /// `original`. Dithering uses this so it only mixes colours close to the original.
-    pub fn nearest_lab_near(&self, target: [f32; 3], original: [f32; 3], slack: f32) -> Option<(u16, [f32; 3])> {
+    pub fn nearest_lab_near(
+        &self,
+        target: [f32; 3],
+        original: [f32; 3],
+        slack: f32,
+    ) -> Option<(u16, [f32; 3])> {
         let best = self.nearest_lab(original)?;
         let limit = dist2(best.1, original).sqrt() + slack;
         self.entries

@@ -184,20 +184,28 @@ impl BrickApp {
             ui.radio_value(&mut s.parts, Parts::Plates, Parts::Plates.label());
             ui.radio_value(&mut s.parts, Parts::Bricks, Parts::Bricks.label());
             if s.layout == Layout::Upright {
-                ui.radio_value(&mut s.parts, Parts::Hybrid, Parts::Hybrid.label()).on_hover_text(
-                    "Bricks for areas of solid colour, plates for detail: fewer pieces, \
+                ui.radio_value(&mut s.parts, Parts::Hybrid, Parts::Hybrid.label())
+                    .on_hover_text(
+                        "Bricks for areas of solid colour, plates for detail: fewer pieces, \
                      with the vertical detail of plates.",
-                );
+                    );
             }
         });
         let smooth_tip = match s.layout {
             Layout::Flat => "Use smooth tiles for the picture instead of plates with studs.",
-            Layout::Upright => "Use a smooth tile instead of a plate wherever nothing sits on top of it \
-                                (when a tile that size exists).",
+            Layout::Upright => {
+                "Use a smooth tile instead of a plate wherever nothing sits on top of it \
+                                (when a tile that size exists)."
+            }
         };
-        ui.add_enabled(s.parts != Parts::Bricks, egui::Checkbox::new(&mut s.smooth_top, "Smooth top (tiles)"))
-            .on_hover_text(smooth_tip)
-            .on_disabled_hover_text("Only plates can be swapped for tiles: a tile on a brick would add a row.");
+        ui.add_enabled(
+            s.parts != Parts::Bricks,
+            egui::Checkbox::new(&mut s.smooth_top, "Smooth top (tiles)"),
+        )
+        .on_hover_text(smooth_tip)
+        .on_disabled_hover_text(
+            "Only plates can be swapped for tiles: a tile on a brick would add a row.",
+        );
         ui.horizontal(|ui| {
             ui.checkbox(&mut s.antialias, "Antialiasing").on_hover_text(
                 "Blend colours where a stud covers an edge, for the look of finer detail. \
@@ -247,8 +255,16 @@ impl BrickApp {
             ui.add(egui::Slider::new(&mut s.border_width, 1..=4).text("border studs"));
         }
         match s.layout {
-            Layout::Flat => optional_colour(ui, "Backing plates", "backing", &mut s.backing, 0, &order, &s.enabled_colours)
-                .on_hover_text("A second layer of plates underneath that holds the mosaic together."),
+            Layout::Flat => optional_colour(
+                ui,
+                "Backing plates",
+                "backing",
+                &mut s.backing,
+                0,
+                &order,
+                &s.enabled_colours,
+            )
+            .on_hover_text("A second layer of plates underneath that holds the mosaic together."),
             Layout::Upright => {
                 let hybrid = s.parts == Parts::Hybrid;
                 ui.add_enabled_ui(!hybrid, |ui| {

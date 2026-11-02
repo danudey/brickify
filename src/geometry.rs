@@ -44,7 +44,10 @@ pub fn brick_bounds(m: &Mosaic, b: &Brick) -> ([f32; 3], [f32; 3]) {
             let row_height = m.kind.height();
             let top = -((m.rows - b.row) as f32) * row_height;
             let front = -WALL_DEPTH / 2.0 + b.z as f32 * STUD;
-            ([x0, top, front], [x1, top + b.h as f32 * row_height, front + b.d as f32 * STUD])
+            (
+                [x0, top, front],
+                [x1, top + b.h as f32 * row_height, front + b.d as f32 * STUD],
+            )
         }
     }
 }
@@ -180,16 +183,33 @@ pub fn build(m: &Mosaic, studs: bool) -> Vec<Tri> {
                 let slot_z = |z: i64| -WALL_DEPTH / 2.0 + z as f32 * STUD;
                 let row_height = m.kind.height();
                 // Per grid row, so faces beside a taller neighbour are culled row by row.
-                let row_y = |r: i64| (y0 + (r - r0) as f32 * row_height, y0 + (r - r0 + 1) as f32 * row_height);
+                let row_y = |r: i64| {
+                    (
+                        y0 + (r - r0) as f32 * row_height,
+                        y0 + (r - r0 + 1) as f32 * row_height,
+                    )
+                };
                 for c in c0..c1 {
                     let (xa, xb) = ((c as f32 * STUD).max(x0), ((c + 1) as f32 * STUD).min(x1));
                     for r in r0..r1 {
                         let (ya, yb) = row_y(r);
                         if !occupied(c, r, s0 - 1) {
-                            quad([xa, ya, z0], [xb, ya, z0], [xb, yb, z0], [xa, yb, z0], [0.0, 0.0, -1.0]);
+                            quad(
+                                [xa, ya, z0],
+                                [xb, ya, z0],
+                                [xb, yb, z0],
+                                [xa, yb, z0],
+                                [0.0, 0.0, -1.0],
+                            );
                         }
                         if !occupied(c, r, s1) {
-                            quad([xa, ya, z1], [xb, ya, z1], [xb, yb, z1], [xa, yb, z1], [0.0, 0.0, 1.0]);
+                            quad(
+                                [xa, ya, z1],
+                                [xb, ya, z1],
+                                [xb, yb, z1],
+                                [xa, yb, z1],
+                                [0.0, 0.0, 1.0],
+                            );
                         }
                     }
                     for z in s0..s1 {
@@ -207,7 +227,13 @@ pub fn build(m: &Mosaic, studs: bool) -> Vec<Tri> {
                             }
                         }
                         if !occupied(c, r1, z) {
-                            quad([xa, y1, za], [xb, y1, za], [xb, y1, zb], [xa, y1, zb], [0.0, 1.0, 0.0]);
+                            quad(
+                                [xa, y1, za],
+                                [xb, y1, za],
+                                [xb, y1, zb],
+                                [xa, y1, zb],
+                                [0.0, 1.0, 0.0],
+                            );
                         }
                     }
                 }
@@ -216,10 +242,22 @@ pub fn build(m: &Mosaic, studs: bool) -> Vec<Tri> {
                     for z in s0..s1 {
                         let (za, zb) = (slot_z(z), slot_z(z + 1));
                         if !occupied(c0 - 1, r, z) {
-                            quad([x0, ya, za], [x0, ya, zb], [x0, yb, zb], [x0, yb, za], [-1.0, 0.0, 0.0]);
+                            quad(
+                                [x0, ya, za],
+                                [x0, ya, zb],
+                                [x0, yb, zb],
+                                [x0, yb, za],
+                                [-1.0, 0.0, 0.0],
+                            );
                         }
                         if !occupied(c1, r, z) {
-                            quad([x1, ya, za], [x1, ya, zb], [x1, yb, zb], [x1, yb, za], [1.0, 0.0, 0.0]);
+                            quad(
+                                [x1, ya, za],
+                                [x1, ya, zb],
+                                [x1, yb, zb],
+                                [x1, yb, za],
+                                [1.0, 0.0, 0.0],
+                            );
                         }
                     }
                 }

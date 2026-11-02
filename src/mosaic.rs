@@ -34,7 +34,6 @@ impl PartKind {
         self != PartKind::Tile
     }
 
-
     /// Available parts as (long side, short side, LDraw file), largest area first.
     fn catalogue(self) -> &'static [(u32, u32, &'static str)] {
         match self {
@@ -249,10 +248,21 @@ impl Mosaic {
                     _ => merge_wall(&cells, cols, rows, kind, s.backing),
                 };
                 let wall = repair_wall(wall, cols, rows);
-                if s.smooth_top { smooth_wall_tops(wall, cols, rows) } else { wall }
+                if s.smooth_top {
+                    smooth_wall_tops(wall, cols, rows)
+                } else {
+                    wall
+                }
             }
         };
-        Mosaic { cols, rows, layout: s.layout, kind, cells, bricks }
+        Mosaic {
+            cols,
+            rows,
+            layout: s.layout,
+            kind,
+            cells,
+            bricks,
+        }
     }
 
     pub fn cell(&self, col: u32, row: u32) -> Option<u16> {
@@ -421,19 +431,34 @@ fn sample(src: &SourceImage, cols: u32, rows: u32, s: &Settings) -> Vec<Option<u
     // be seen around the picture: the background fill or the border. (A flat mosaic's backing
     // sits under the picture, so it isn't seen around it.)
     let surround = s.background.or(s.border);
-    let surround = surround.and_then(crate::palette::by_code).map(|c| c.rgb.map(f32::from));
+    let surround = surround
+        .and_then(crate::palette::by_code)
+        .map(|c| c.rgb.map(f32::from));
     let samples: Vec<CellSample> = sample_cells(src, cols, rows, s.antialias)
         .into_iter()
         .map(|cell| match (s.antialias, surround) {
             (true, Some(bg)) if cell.coverage < 1.0 => {
                 let t = cell.coverage;
-                CellSample { rgb: [0, 1, 2].map(|i| cell.rgb[i] * t + bg[i] * (1.0 - t)), ..cell }
+                CellSample {
+                    rgb: [0, 1, 2].map(|i| cell.rgb[i] * t + bg[i] * (1.0 - t)),
+                    ..cell
+                }
             }
             _ => cell,
         })
         .collect();
-    let filled: Vec<bool> = samples.iter().map(|c| c.coverage >= s.alpha_threshold && c.coverage > 0.0).collect();
-    quantize(&samples, &filled, cols, rows, &Matcher::new(&s.enabled_colours), s.dither)
+    let filled: Vec<bool> = samples
+        .iter()
+        .map(|c| c.coverage >= s.alpha_threshold && c.coverage > 0.0)
+        .collect();
+    quantize(
+        &samples,
+        &filled,
+        cols,
+        rows,
+        &Matcher::new(&s.enabled_colours),
+        s.dither,
+    )
 }
 
 /// Colour and coverage of each cell. With `blend`, the colour is the average of the cell
@@ -462,7 +487,8 @@ fn sample_cells(src: &SourceImage, cols: u32, rows: u32, blend: bool) -> Vec<Cel
                         sum[i] += weighted[i];
                     }
                     if !blend && p[3] > 0 {
-                        let key = (p[0] as u16 >> 3) << 10 | (p[1] as u16 >> 3) << 5 | p[2] as u16 >> 3;
+                        let key =
+                            (p[0] as u16 >> 3) << 10 | (p[1] as u16 >> 3) << 5 | p[2] as u16 >> 3;
                         let group = groups.entry(key).or_insert([0.0; 4]);
                         for i in 0..4 {
                             group[i] += weighted[i];
@@ -474,10 +500,21 @@ fn sample_cells(src: &SourceImage, cols: u32, rows: u32, blend: bool) -> Vec<Cel
             let colour = if blend {
                 sum
             } else {
-                groups.values().copied().max_by(|a, b| a[3].total_cmp(&b[3])).unwrap_or(sum)
+                groups
+                    .values()
+                    .copied()
+                    .max_by(|a, b| a[3].total_cmp(&b[3]))
+                    .unwrap_or(sum)
             };
-            let rgb = if colour[3] > 0.0 { [0, 1, 2].map(|i| (colour[i] / colour[3]) as f32) } else { [0.0; 3] };
-            out.push(CellSample { rgb, coverage: (sum[3] / n) as f32 });
+            let rgb = if colour[3] > 0.0 {
+                [0, 1, 2].map(|i| (colour[i] / colour[3]) as f32)
+            } else {
+                [0.0; 3]
+            };
+            out.push(CellSample {
+                rgb,
+                coverage: (sum[3] / n) as f32,
+            });
         }
     }
     out
@@ -509,7 +546,9 @@ fn quantize(
     let original: Vec<[f32; 3]> = samples.iter().map(|c| to_lab(c.rgb)).collect();
     let mut target = original.clone();
     let mut out = vec![None; samples.len()];
-    let distance = |a: [f32; 3], b: [f32; 3]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+    let distance = |a: [f32; 3], b: [f32; 3]| {
+        ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+    };
     // A cell is in a gradient if a neighbour's colour differs, but not by enough to be an edge.
     let in_gradient = |i: usize| {
         let (c, r) = ((i as u32 % cols) as i64, (i as u32 / cols) as i64);
@@ -538,7 +577,9 @@ fn quantize(
             } else {
                 matcher.nearest_lab(original[i])
             };
-            let Some((code, chosen)) = picked else { continue };
+            let Some((code, chosen)) = picked else {
+                continue;
+            };
             out[i] = Some(code);
             let error = [0, 1, 2].map(|j| target[i][j] - chosen[j]);
             if !dithered || distance(target[i], chosen) < DEAD_ZONE {
@@ -893,7 +934,7 @@ fn bridge(
         .collect();
     // Largest first; a 1x2 part always fits, so this is never empty.
     candidates.sort_by_key(|&(_, _, w, h, _)| std::cmp::Reverse(w * h));
-    let pick = if choice.is_multiple_of(3) {
+    let pick = if choice % 3 == 0 {
         (choice / 3) as usize % candidates.len()
     } else {
         0
@@ -929,7 +970,12 @@ fn bridge(
 fn repair_wall(mut bricks: Vec<Brick>, cols: u32, rows: u32) -> Vec<Brick> {
     const MAX_REPAIRS: usize = 400;
     let lengths = |kind: PartKind, d: u32| -> Vec<(u32, &'static str)> {
-        let mut l: Vec<_> = kind.catalogue().iter().filter(|p| p.1 == d).map(|p| (p.0, p.2)).collect();
+        let mut l: Vec<_> = kind
+            .catalogue()
+            .iter()
+            .filter(|p| p.1 == d)
+            .map(|p| (p.0, p.2))
+            .collect();
         if d == 2 {
             l.push((1, kind.part_for(2, 1)));
         }
@@ -1003,7 +1049,11 @@ fn repair_wall(mut bricks: Vec<Brick>, cols: u32, rows: u32) -> Vec<Brick> {
             let Some(&(c, r)) = (0..loose.len())
                 .map(|i| &loose[(first + i) % loose.len()])
                 .filter(|&&(c, r)| bricks[at(c, r, 0)].colour == bricks[at(c + 1, r, 0)].colour)
-                .find(|&&(c, r)| [at(c, r, 0), at(c + 1, r, 0)].iter().any(|&i| bricks[i].h > 1))
+                .find(|&&(c, r)| {
+                    [at(c, r, 0), at(c + 1, r, 0)]
+                        .iter()
+                        .any(|&i| bricks[i].h > 1)
+                })
             else {
                 break; // e.g. a colour change in a one-row-thick stroke: no part can span it
             };
@@ -1017,8 +1067,18 @@ fn repair_wall(mut bricks: Vec<Brick>, cols: u32, rows: u32) -> Vec<Brick> {
                 let brick = bricks.swap_remove(i);
                 let plate_lengths = lengths(PartKind::Plate, brick.d);
                 for row in brick.row..brick.row + brick.h {
-                    for (col, w, part) in split_run(brick.col, brick.col + brick.w, &plate_lengths, |_| false) {
-                        bricks.push(Brick { col, row, w, h: 1, part, kind: PartKind::Plate, ..brick.clone() });
+                    for (col, w, part) in
+                        split_run(brick.col, brick.col + brick.w, &plate_lengths, |_| false)
+                    {
+                        bricks.push(Brick {
+                            col,
+                            row,
+                            w,
+                            h: 1,
+                            part,
+                            kind: PartKind::Plate,
+                            ..brick.clone()
+                        });
                     }
                 }
             }
@@ -1026,7 +1086,10 @@ fn repair_wall(mut bricks: Vec<Brick>, cols: u32, rows: u32) -> Vec<Brick> {
         };
         let (p, q) = options[random() as usize % options.len()];
         let template = bricks[p].clone();
-        let (start, end) = (bricks[p].col.min(bricks[q].col), (bricks[p].col + bricks[p].w).max(bricks[q].col + bricks[q].w));
+        let (start, end) = (
+            bricks[p].col.min(bricks[q].col),
+            (bricks[p].col + bricks[p].w).max(bricks[q].col + bricks[q].w),
+        );
         let lengths = lengths(template.kind, template.d);
         // A part spanning c and c + 1, inside start..end; usually the longest, sometimes another.
         let mut spans: Vec<(u32, u32, &'static str)> = lengths
@@ -1066,10 +1129,15 @@ fn smooth_wall_tops(mut bricks: Vec<Brick>, cols: u32, rows: u32) -> Vec<Brick> 
             continue;
         }
         let covered = b.row > 0
-            && (b.col..b.col + b.w)
-                .any(|c| (b.z..b.z + b.d).any(|z| occupant[(((b.row - 1) * cols + c) * 2 + z) as usize] != usize::MAX));
+            && (b.col..b.col + b.w).any(|c| {
+                (b.z..b.z + b.d)
+                    .any(|z| occupant[(((b.row - 1) * cols + c) * 2 + z) as usize] != usize::MAX)
+            });
         let (long, short) = (b.w.max(b.d), b.w.min(b.d));
-        let tile = PartKind::Tile.catalogue().iter().find(|t| t.0 == long && t.1 == short);
+        let tile = PartKind::Tile
+            .catalogue()
+            .iter()
+            .find(|t| t.0 == long && t.1 == short);
         if let (false, Some(&(_, _, part))) = (covered, tile) {
             b.kind = PartKind::Tile;
             b.part = part;
@@ -1213,7 +1281,11 @@ const BRICK_ROWS: u32 = 3;
 /// [`merge_hybrid_wall`] with bands starting `offset` rows above the bottom row.
 fn merge_hybrid_bands(cells: &[Option<u16>], cols: u32, rows: u32, offset: u32) -> Vec<Brick> {
     let lengths = |kind: PartKind| -> Vec<(u32, &'static str)> {
-        kind.catalogue().iter().filter(|p| p.1 == 1).map(|p| (p.0, p.2)).collect()
+        kind.catalogue()
+            .iter()
+            .filter(|p| p.1 == 1)
+            .map(|p| (p.0, p.2))
+            .collect()
     };
     let (plates, bricks_1xn) = (lengths(PartKind::Plate), lengths(PartKind::Brick));
     let at = |c: u32, r: u32| (r * cols + c) as usize;
@@ -1221,7 +1293,13 @@ fn merge_hybrid_bands(cells: &[Option<u16>], cols: u32, rows: u32, offset: u32) 
     // Seams per row: seams[r][c] is true where a part in row r starts or ends at column c.
     let mut seams = vec![vec![false; cols as usize + 1]; rows as usize + 1];
     let mut bricks = Vec::new();
-    let mut place = |bricks: &mut Vec<Brick>, used: &mut Vec<bool>, row: u32, h: u32, kind: PartKind, run: &[Option<u16>], lengths: &[(u32, &'static str)]| {
+    let mut place = |bricks: &mut Vec<Brick>,
+                     used: &mut Vec<bool>,
+                     row: u32,
+                     h: u32,
+                     kind: PartKind,
+                     run: &[Option<u16>],
+                     lengths: &[(u32, &'static str)]| {
         let below = seams[(row + h) as usize].clone();
         for (start, end, colour) in runs(run) {
             for (col, w, part) in split_run(start, end, lengths, |x| below[x as usize]) {
@@ -1232,21 +1310,61 @@ fn merge_hybrid_bands(cells: &[Option<u16>], cols: u32, rows: u32, offset: u32) 
                     seams[r as usize][col as usize] = true;
                     seams[r as usize][(col + w) as usize] = true;
                 }
-                bricks.push(Brick { col, row, w, h, colour, part, kind, layer: 0, z: 0, d: 1 });
+                bricks.push(Brick {
+                    col,
+                    row,
+                    w,
+                    h,
+                    colour,
+                    part,
+                    kind,
+                    layer: 0,
+                    z: 0,
+                    d: 1,
+                });
             }
         }
     };
     for r in (0..rows).rev() {
-        let band_bottom = r + offset + 1 <= rows && (rows - 1 - offset - r) % BRICK_ROWS == 0 && r + 1 >= BRICK_ROWS;
+        let band_bottom = r + offset + 1 <= rows
+            && (rows - 1 - offset - r) % BRICK_ROWS == 0
+            && r + 1 >= BRICK_ROWS;
         if band_bottom {
             let top = r + 1 - BRICK_ROWS;
             let solid: Vec<Option<u16>> = (0..cols)
-                .map(|c| cells[at(c, r)].filter(|&colour| (top..r).all(|rr| cells[at(c, rr)] == Some(colour))))
+                .map(|c| {
+                    cells[at(c, r)]
+                        .filter(|&colour| (top..r).all(|rr| cells[at(c, rr)] == Some(colour)))
+                })
                 .collect();
-            place(&mut bricks, &mut used, top, BRICK_ROWS, PartKind::Brick, &solid, &bricks_1xn);
+            place(
+                &mut bricks,
+                &mut used,
+                top,
+                BRICK_ROWS,
+                PartKind::Brick,
+                &solid,
+                &bricks_1xn,
+            );
         }
-        let free: Vec<Option<u16>> = (0..cols).map(|c| if used[at(c, r)] { None } else { cells[at(c, r)] }).collect();
-        place(&mut bricks, &mut used, r, 1, PartKind::Plate, &free, &plates);
+        let free: Vec<Option<u16>> = (0..cols)
+            .map(|c| {
+                if used[at(c, r)] {
+                    None
+                } else {
+                    cells[at(c, r)]
+                }
+            })
+            .collect();
+        place(
+            &mut bricks,
+            &mut used,
+            r,
+            1,
+            PartKind::Plate,
+            &free,
+            &plates,
+        );
     }
     bricks
 }
@@ -1275,11 +1393,20 @@ mod tests {
                 rgba.push(if inside { 255 } else { 0 });
             }
         }
-        SourceImage { width, height, rgba }
+        SourceImage {
+            width,
+            height,
+            rgba,
+        }
     }
 
     pub(crate) fn wall_settings(parts: Parts) -> Settings {
-        Settings { layout: Layout::Upright, parts, width: 24, ..Settings::default() }
+        Settings {
+            layout: Layout::Upright,
+            parts,
+            width: 24,
+            ..Settings::default()
+        }
     }
 
     /// For each part, whether any part sits directly on top of it.
@@ -1290,8 +1417,9 @@ mod tests {
             .map(|b| {
                 b.row > 0
                     && (b.col..b.col + b.w).any(|c| {
-                        (b.z..b.z + b.d)
-                            .any(|z| occupant[(((b.row - 1) * m.cols + c) * 2 + z) as usize] != usize::MAX)
+                        (b.z..b.z + b.d).any(|z| {
+                            occupant[(((b.row - 1) * m.cols + c) * 2 + z) as usize] != usize::MAX
+                        })
                     })
             })
             .collect()
@@ -1299,10 +1427,23 @@ mod tests {
 
     #[test]
     fn smooth_flat_mosaic_uses_tiles_for_the_picture() {
-        let s = Settings { smooth_top: true, ..Settings::default() };
+        let s = Settings {
+            smooth_top: true,
+            ..Settings::default()
+        };
         let m = Mosaic::build(&test_image(), &s);
-        assert!(m.bricks.iter().filter(|b| b.layer == 0).all(|b| b.kind == PartKind::Tile));
-        assert!(m.bricks.iter().filter(|b| b.layer == 1).all(|b| b.kind == PartKind::Plate));
+        assert!(
+            m.bricks
+                .iter()
+                .filter(|b| b.layer == 0)
+                .all(|b| b.kind == PartKind::Tile)
+        );
+        assert!(
+            m.bricks
+                .iter()
+                .filter(|b| b.layer == 1)
+                .all(|b| b.kind == PartKind::Plate)
+        );
         let (groups, islands, _) = m.connectivity();
         assert_eq!(groups, islands);
     }
@@ -1310,7 +1451,11 @@ mod tests {
     #[test]
     fn smooth_wall_tiles_only_uncovered_plates() {
         for backing in [None, Some(0)] {
-            let s = Settings { smooth_top: true, backing, ..wall_settings(Parts::Plates) };
+            let s = Settings {
+                smooth_top: true,
+                backing,
+                ..wall_settings(Parts::Plates)
+            };
             let m = Mosaic::build(&test_image(), &s);
             let covered = covered(&m);
             let mut tiles = 0;
@@ -1324,7 +1469,12 @@ mod tests {
                         assert!(!covered, "tile at {},{} has a part on top", b.col, b.row);
                         tiles += 1;
                     }
-                    PartKind::Plate => assert!(covered || !tile_exists, "plate at {},{} could be a tile", b.col, b.row),
+                    PartKind::Plate => assert!(
+                        covered || !tile_exists,
+                        "plate at {},{} could be a tile",
+                        b.col,
+                        b.row
+                    ),
                     PartKind::Brick => unreachable!(),
                 }
             }
@@ -1334,7 +1484,10 @@ mod tests {
 
     #[test]
     fn smooth_top_leaves_brick_walls_alone() {
-        let s = Settings { smooth_top: true, ..wall_settings(Parts::Bricks) };
+        let s = Settings {
+            smooth_top: true,
+            ..wall_settings(Parts::Bricks)
+        };
         let m = Mosaic::build(&test_image(), &s);
         assert!(m.bricks.iter().all(|b| b.kind == PartKind::Brick));
     }
@@ -1348,12 +1501,23 @@ mod tests {
                 for c in b.col..b.col + b.w {
                     let i = (r * m.cols + c) as usize;
                     count[i] += 1;
-                    assert_eq!(m.cells[i], Some(b.colour), "part {} at {c},{r} doesn't match its cell", b.part);
+                    assert_eq!(
+                        m.cells[i],
+                        Some(b.colour),
+                        "part {} at {c},{r} doesn't match its cell",
+                        b.part
+                    );
                 }
             }
         }
         for (i, cell) in m.cells.iter().enumerate() {
-            assert_eq!(count[i], cell.is_some() as i32, "cell {} covered {} times", i, count[i]);
+            assert_eq!(
+                count[i],
+                cell.is_some() as i32,
+                "cell {} covered {} times",
+                i,
+                count[i]
+            );
         }
     }
 
@@ -1362,8 +1526,21 @@ mod tests {
         for layout in [Layout::Flat, Layout::Upright] {
             for parts in [Parts::Plates, Parts::Bricks, Parts::Hybrid] {
                 for smooth_top in [false, true] {
-                    for (backing, border) in [(None, None), (Some(0), None), (None, Some(0)), (Some(0), Some(0))] {
-                        let s = Settings { layout, parts, smooth_top, backing, border, width: 30, ..Settings::default() };
+                    for (backing, border) in [
+                        (None, None),
+                        (Some(0), None),
+                        (None, Some(0)),
+                        (Some(0), Some(0)),
+                    ] {
+                        let s = Settings {
+                            layout,
+                            parts,
+                            smooth_top,
+                            backing,
+                            border,
+                            width: 30,
+                            ..Settings::default()
+                        };
                         assert_covers_picture(&Mosaic::build(&test_image(), &s));
                     }
                 }
@@ -1374,15 +1551,37 @@ mod tests {
     #[test]
     fn hybrid_uses_bricks_for_solid_areas_and_fewer_pieces() {
         let image = test_image();
-        let plates = Mosaic::build(&image, &Settings { border: Some(0), backing: None, ..wall_settings(Parts::Plates) });
-        let hybrid = Mosaic::build(&image, &Settings { border: Some(0), backing: None, ..wall_settings(Parts::Hybrid) });
+        let plates = Mosaic::build(
+            &image,
+            &Settings {
+                border: Some(0),
+                backing: None,
+                ..wall_settings(Parts::Plates)
+            },
+        );
+        let hybrid = Mosaic::build(
+            &image,
+            &Settings {
+                border: Some(0),
+                backing: None,
+                ..wall_settings(Parts::Hybrid)
+            },
+        );
         assert_eq!(plates.cells, hybrid.cells, "same picture grid");
-        let bricks = hybrid.bricks.iter().filter(|b| b.kind == PartKind::Brick).count();
+        let bricks = hybrid
+            .bricks
+            .iter()
+            .filter(|b| b.kind == PartKind::Brick)
+            .count();
         assert!(bricks > 0);
         for b in &hybrid.bricks {
             assert_eq!(b.h, if b.kind == PartKind::Brick { 3 } else { 1 });
         }
-        println!("hybrid {} pieces vs plates {}", hybrid.bricks.len(), plates.bricks.len());
+        println!(
+            "hybrid {} pieces vs plates {}",
+            hybrid.bricks.len(),
+            plates.bricks.len()
+        );
         assert!(
             hybrid.bricks.len() * 100 < plates.bricks.len() * 85,
             "hybrid {} pieces vs plates {}",
@@ -1404,7 +1603,11 @@ mod tests {
                 rgba.extend([mix(250.0, 180.0), mix(200.0, 0.0), mix(10.0, 0.0), 255]);
             }
         }
-        SourceImage { width, height, rgba }
+        SourceImage {
+            width,
+            height,
+            rgba,
+        }
     }
 
     fn colours_used(m: &Mosaic) -> std::collections::BTreeSet<u16> {
@@ -1413,22 +1616,45 @@ mod tests {
 
     #[test]
     fn crisp_sampling_uses_only_the_pictures_own_colours() {
-        let s = Settings { backing: None, width: 30, ..Settings::default() };
+        let s = Settings {
+            backing: None,
+            width: 30,
+            ..Settings::default()
+        };
         let matcher = Matcher::new(&s.enabled_colours);
-        let own: std::collections::BTreeSet<u16> = [[180.0, 0.0, 0.0], [30.0, 90.0, 170.0], [250.0, 200.0, 10.0]]
-            .iter()
-            .map(|&rgb| matcher.nearest_lab(to_lab(rgb)).unwrap().0)
-            .collect();
+        let own: std::collections::BTreeSet<u16> =
+            [[180.0, 0.0, 0.0], [30.0, 90.0, 170.0], [250.0, 200.0, 10.0]]
+                .iter()
+                .map(|&rgb| matcher.nearest_lab(to_lab(rgb)).unwrap().0)
+                .collect();
         let crisp = Mosaic::build(&test_image(), &s);
-        assert!(colours_used(&crisp).is_subset(&own), "{:?} vs {:?}", colours_used(&crisp), own);
-        let blended = Mosaic::build(&test_image(), &Settings { antialias: true, ..s });
-        assert!(!colours_used(&blended).is_subset(&own), "antialiasing should add in-between colours");
+        assert!(
+            colours_used(&crisp).is_subset(&own),
+            "{:?} vs {:?}",
+            colours_used(&crisp),
+            own
+        );
+        let blended = Mosaic::build(
+            &test_image(),
+            &Settings {
+                antialias: true,
+                ..s
+            },
+        );
+        assert!(
+            !colours_used(&blended).is_subset(&own),
+            "antialiasing should add in-between colours"
+        );
     }
 
     #[test]
     fn dithering_follows_a_gradient_more_closely() {
         let image = gradient_image();
-        let s = Settings { backing: None, width: 40, ..Settings::default() };
+        let s = Settings {
+            backing: None,
+            width: 40,
+            ..Settings::default()
+        };
         // Mean colour error of each column (averaged in L*a*b*) against the source.
         let column_error = |m: &Mosaic| {
             let mut total = 0.0;
@@ -1444,7 +1670,10 @@ mod tests {
                 let x = ((c as f32 + 0.5) / m.cols as f32 * image.width as f32) as usize;
                 let p = &image.rgba[x * 4..x * 4 + 3];
                 let source = to_lab([p[0] as f32, p[1] as f32, p[2] as f32]);
-                total += (0..3).map(|j| (mean[j] - source[j]).powi(2)).sum::<f32>().sqrt();
+                total += (0..3)
+                    .map(|j| (mean[j] - source[j]).powi(2))
+                    .sum::<f32>()
+                    .sqrt();
             }
             total / m.cols as f32
         };
