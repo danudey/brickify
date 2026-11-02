@@ -24,7 +24,11 @@ pub fn brick_bounds(m: &Mosaic, b: &Brick) -> ([f32; 3], [f32; 3]) {
     let x1 = (b.col + b.w) as f32 * STUD;
     match m.layout {
         Layout::Flat => {
-            let backing = if m.bricks.iter().any(|b| b.layer == 1) { 8.0 } else { 0.0 };
+            let backing = if m.bricks.iter().any(|b| b.layer == 1) {
+                8.0
+            } else {
+                0.0
+            };
             let (top, bottom) = if b.layer == 0 {
                 (-(m.kind.height() + backing), -backing)
             } else {
@@ -39,7 +43,10 @@ pub fn brick_bounds(m: &Mosaic, b: &Brick) -> ([f32; 3], [f32; 3]) {
             let height = m.kind.height();
             let top = -((m.rows - b.row) as f32) * height;
             let front = -WALL_DEPTH / 2.0 + b.z as f32 * STUD;
-            ([x0, top, front], [x1, top + height, front + b.d as f32 * STUD])
+            (
+                [x0, top, front],
+                [x1, top + height, front + b.d as f32 * STUD],
+            )
         }
     }
 }
@@ -49,7 +56,11 @@ pub fn build(m: &Mosaic, studs: bool) -> Vec<Tri> {
     let mut tris = Vec::new();
     let has_backing = m.bricks.iter().any(|b| b.layer == 1);
     let filled = |c: i64, r: i64| {
-        c >= 0 && r >= 0 && c < m.cols as i64 && r < m.rows as i64 && m.cell(c as u32, r as u32).is_some()
+        c >= 0
+            && r >= 0
+            && c < m.cols as i64
+            && r < m.rows as i64
+            && m.cell(c as u32, r as u32).is_some()
     };
     // Upright walls can be two deep, so track occupancy per (cell, depth slot).
     let mut slots = vec![false; (m.cols * m.rows * 2) as usize];
@@ -92,10 +103,22 @@ pub fn build(m: &Mosaic, studs: bool) -> Vec<Tri> {
                     for c in c0..c1 {
                         let (xa, xb) = ((c as f32 * STUD).max(x0), ((c + 1) as f32 * STUD).min(x1));
                         if b.layer == 0 {
-                            quad([xa, y0, za], [xb, y0, za], [xb, y0, zb], [xa, y0, zb], [0.0, -1.0, 0.0]);
+                            quad(
+                                [xa, y0, za],
+                                [xb, y0, za],
+                                [xb, y0, zb],
+                                [xa, y0, zb],
+                                [0.0, -1.0, 0.0],
+                            );
                         }
                         if b.layer == 1 || !has_backing {
-                            quad([xa, y1, za], [xb, y1, za], [xb, y1, zb], [xa, y1, zb], [0.0, 1.0, 0.0]);
+                            quad(
+                                [xa, y1, za],
+                                [xb, y1, za],
+                                [xb, y1, zb],
+                                [xa, y1, zb],
+                                [0.0, 1.0, 0.0],
+                            );
                         }
                     }
                 }
@@ -103,19 +126,43 @@ pub fn build(m: &Mosaic, studs: bool) -> Vec<Tri> {
                 for c in c0..c1 {
                     let (xa, xb) = ((c as f32 * STUD).max(x0), ((c + 1) as f32 * STUD).min(x1));
                     if !filled(c, r0 - 1) {
-                        quad([xa, y0, z1], [xb, y0, z1], [xb, y1, z1], [xa, y1, z1], [0.0, 0.0, 1.0]);
+                        quad(
+                            [xa, y0, z1],
+                            [xb, y0, z1],
+                            [xb, y1, z1],
+                            [xa, y1, z1],
+                            [0.0, 0.0, 1.0],
+                        );
                     }
                     if !filled(c, r1) {
-                        quad([xa, y0, z0], [xb, y0, z0], [xb, y1, z0], [xa, y1, z0], [0.0, 0.0, -1.0]);
+                        quad(
+                            [xa, y0, z0],
+                            [xb, y0, z0],
+                            [xb, y1, z0],
+                            [xa, y1, z0],
+                            [0.0, 0.0, -1.0],
+                        );
                     }
                 }
                 for r in r0..r1 {
                     let (za, zb) = ((z_of(r + 1)).max(z0), z_of(r).min(z1));
                     if !filled(c0 - 1, r) {
-                        quad([x0, y0, za], [x0, y0, zb], [x0, y1, zb], [x0, y1, za], [-1.0, 0.0, 0.0]);
+                        quad(
+                            [x0, y0, za],
+                            [x0, y0, zb],
+                            [x0, y1, zb],
+                            [x0, y1, za],
+                            [-1.0, 0.0, 0.0],
+                        );
                     }
                     if !filled(c1, r) {
-                        quad([x1, y0, za], [x1, y0, zb], [x1, y1, zb], [x1, y1, za], [1.0, 0.0, 0.0]);
+                        quad(
+                            [x1, y0, za],
+                            [x1, y0, zb],
+                            [x1, y1, zb],
+                            [x1, y1, za],
+                            [1.0, 0.0, 0.0],
+                        );
                     }
                 }
                 if studs && b.kind.has_studs() && b.layer == 0 {
@@ -134,31 +181,67 @@ pub fn build(m: &Mosaic, studs: bool) -> Vec<Tri> {
                 for c in c0..c1 {
                     let (xa, xb) = ((c as f32 * STUD).max(x0), ((c + 1) as f32 * STUD).min(x1));
                     if !occupied(c, r0, s0 - 1) {
-                        quad([xa, y0, z0], [xb, y0, z0], [xb, y1, z0], [xa, y1, z0], [0.0, 0.0, -1.0]);
+                        quad(
+                            [xa, y0, z0],
+                            [xb, y0, z0],
+                            [xb, y1, z0],
+                            [xa, y1, z0],
+                            [0.0, 0.0, -1.0],
+                        );
                     }
                     if !occupied(c, r0, s1) {
-                        quad([xa, y0, z1], [xb, y0, z1], [xb, y1, z1], [xa, y1, z1], [0.0, 0.0, 1.0]);
+                        quad(
+                            [xa, y0, z1],
+                            [xb, y0, z1],
+                            [xb, y1, z1],
+                            [xa, y1, z1],
+                            [0.0, 0.0, 1.0],
+                        );
                     }
                     for z in s0..s1 {
                         let (za, zb) = (slot_z(z), slot_z(z + 1));
                         if !occupied(c, r0 - 1, z) {
-                            quad([xa, y0, za], [xb, y0, za], [xb, y0, zb], [xa, y0, zb], [0.0, -1.0, 0.0]);
+                            quad(
+                                [xa, y0, za],
+                                [xb, y0, za],
+                                [xb, y0, zb],
+                                [xa, y0, zb],
+                                [0.0, -1.0, 0.0],
+                            );
                             if studs && b.kind.has_studs() {
                                 stud_bases.push([(c as f32 + 0.5) * STUD, y0, (za + zb) / 2.0]);
                             }
                         }
                         if !occupied(c, r0 + 1, z) {
-                            quad([xa, y1, za], [xb, y1, za], [xb, y1, zb], [xa, y1, zb], [0.0, 1.0, 0.0]);
+                            quad(
+                                [xa, y1, za],
+                                [xb, y1, za],
+                                [xb, y1, zb],
+                                [xa, y1, zb],
+                                [0.0, 1.0, 0.0],
+                            );
                         }
                     }
                 }
                 for z in s0..s1 {
                     let (za, zb) = (slot_z(z), slot_z(z + 1));
                     if !occupied(c0 - 1, r0, z) {
-                        quad([x0, y0, za], [x0, y0, zb], [x0, y1, zb], [x0, y1, za], [-1.0, 0.0, 0.0]);
+                        quad(
+                            [x0, y0, za],
+                            [x0, y0, zb],
+                            [x0, y1, zb],
+                            [x0, y1, za],
+                            [-1.0, 0.0, 0.0],
+                        );
                     }
                     if !occupied(c1, r0, z) {
-                        quad([x1, y0, za], [x1, y0, zb], [x1, y1, zb], [x1, y1, za], [1.0, 0.0, 0.0]);
+                        quad(
+                            [x1, y0, za],
+                            [x1, y0, zb],
+                            [x1, y1, zb],
+                            [x1, y1, za],
+                            [1.0, 0.0, 0.0],
+                        );
                     }
                 }
             }
@@ -176,28 +259,62 @@ pub fn build(m: &Mosaic, studs: bool) -> Vec<Tri> {
 /// Adds a quad as two triangles, wound counter-clockwise when seen from the normal's side.
 fn push_quad(tris: &mut Vec<Tri>, q: [[f32; 3]; 4], normal: [f32; 3], rgb: [u8; 3]) {
     let facing = dot(cross(sub(q[1], q[0]), sub(q[2], q[0])), normal);
-    let q = if facing < 0.0 { [q[0], q[3], q[2], q[1]] } else { q };
-    tris.push(Tri { v: [q[0], q[1], q[2]], normal, rgb });
-    tris.push(Tri { v: [q[0], q[2], q[3]], normal, rgb });
+    let q = if facing < 0.0 {
+        [q[0], q[3], q[2], q[1]]
+    } else {
+        q
+    };
+    tris.push(Tri {
+        v: [q[0], q[1], q[2]],
+        normal,
+        rgb,
+    });
+    tris.push(Tri {
+        v: [q[0], q[2], q[3]],
+        normal,
+        rgb,
+    });
 }
 
 fn push_stud(tris: &mut Vec<Tri>, base: [f32; 3], rgb: [u8; 3]) {
     let top = base[1] - STUD_HEIGHT;
     let ring = |i: usize| {
         let a = i as f32 / STUD_SIDES as f32 * std::f32::consts::TAU;
-        (base[0] + STUD_RADIUS * a.cos(), base[2] + STUD_RADIUS * a.sin(), a)
+        (
+            base[0] + STUD_RADIUS * a.cos(),
+            base[2] + STUD_RADIUS * a.sin(),
+            a,
+        )
     };
     for i in 0..STUD_SIDES {
         let (xa, za, aa) = ring(i);
         let (xb, zb, ab) = ring(i + 1);
         let mid = (aa + ab) / 2.0;
         let n = [mid.cos(), 0.0, mid.sin()];
-        push_quad(tris, [[xa, top, za], [xb, top, zb], [xb, base[1], zb], [xa, base[1], za]], n, rgb);
+        push_quad(
+            tris,
+            [
+                [xa, top, za],
+                [xb, top, zb],
+                [xb, base[1], zb],
+                [xa, base[1], za],
+            ],
+            n,
+            rgb,
+        );
         let mut cap = [[base[0], top, base[2]], [xa, top, za], [xb, top, zb]];
-        if dot(cross(sub(cap[1], cap[0]), sub(cap[2], cap[0])), [0.0, -1.0, 0.0]) < 0.0 {
+        if dot(
+            cross(sub(cap[1], cap[0]), sub(cap[2], cap[0])),
+            [0.0, -1.0, 0.0],
+        ) < 0.0
+        {
             cap.swap(1, 2);
         }
-        tris.push(Tri { v: cap, normal: [0.0, -1.0, 0.0], rgb });
+        tris.push(Tri {
+            v: cap,
+            normal: [0.0, -1.0, 0.0],
+            rgb,
+        });
     }
 }
 
@@ -210,7 +327,11 @@ pub fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
 }
 
 pub fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
 }
 
 /// Axis-aligned bounds of a set of triangles.

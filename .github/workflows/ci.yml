@@ -1,0 +1,169 @@
+name: CI
+
+# Builds and tests on every operating system and CPU architecture the project
+# claims to support.
+#
+# Two jobs, because they answer different questions:
+#
+#   test         does the code work. Runs the real test suite on real
+#                hardware, so it can only cover targets GitHub gives us
+#                runners for: x86-64 and arm64 on Linux, macOS and Windows.
+#
+#   cross-build  does the code still compile everywhere else. Catches the
+#                breakage that otherwise turns up mid-release: a `#[cfg]` that
+#                excludes every arm, a dependency with no support for the
+#                target, a `usize` assumed to be 64 bits.
+#
+# Clippy lives in codequality.yml and rustfmt in fmt.yml, so that a failing
+# lint and a failing test are different status checks and a formatting nit
+# does not read as "the build is broken".
+#
+# CROSS-COMPILING
+#   brickify is a GUI application, so the only extra target is the web build
+#   (wasm32). The template's musl targets built through `cargo zigbuild` are
+#   gone: a static musl binary cannot dlopen the libGL, X11 and Wayland
+#   libraries that winit and glow load at run time.
+#
+# WHAT TO CHANGE
+#   1. `WORKING_DIRECTORY`, if Cargo.toml is not at the repository root. For a
+#      workspace, leave it at the workspace root and let `--workspace` do the
+#      walking.
+#   2. `RUST_TOOLCHAIN`. `stable` tracks the current release. Set it to an exact
+#      version ("1.85.0") if the project needs to be reproducible, and add a
+#      `rust-toolchain.toml` if developers should get the same one.
+#   3. The MSRV entry in the test matrix. It has to match `rust-version` in
+#      Cargo.toml; nothing checks that agreement for you, and an MSRV
+#      declared but not tested is the usual source of "it does not build on
+#      1.75".
+#   4. The `cross-build` matrix. `rustc --print target-list` prints every
+#      target rustc knows. Keep the ones you would answer a bug report for.
+#
+# WHAT IT NEEDS
+#   - A committed Cargo.lock. Every command uses `--locked`, so a stale lock
+#     fails rather than silently resolving something new.
+#   - Nothing else. No secrets.
+#
+# WHAT IT PRODUCES
+#   - One status check per runner and per target.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WORKING_DIRECTORY: "."
+  # Not `TOOLCHAIN`: Windows env vars ignore case, and that name hides the
+  # `toolchain` variable dtolnay/rust-toolchain sets for its own script.
+  RUST_TOOLCHAIN: "stable"
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Debug info roughly triples target/ size and nothing in CI reads it.
+  # Halves the cache upload and download time on a large workspace.
+  CARGO_PROFILE_TEST_DEBUG: "0"
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, ${{ matrix.toolchain }})
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+    strategy:
+      # One platform failing should not hide the others.
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - ubuntu-24.04-arm
+          - macos-latest
+          - windows-latest
+        toolchain: ["stable"]
+        include:
+          # No MSRV entry: Cargo.toml does not declare a `rust-version`. Add
+          # one here, matching that field, if the project ever commits to one.
+          # Beta, so a change coming in six weeks is found now rather than on
+          # the day it ships. Allowed to fail: see the `continue-on-error`
+          # below.
+          - os: ubuntu-latest
+            toolchain: "beta"
+    # Beta breaking is upstream's news, not a reason to block a pull request.
+    continue-on-error: ${{ matrix.toolchain == 'beta' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          # Required, and there is no default: the action normally infers the
+          # toolchain from the ref it was called by (`@stable`), which a
+          # commit-SHA pin does not provide.
+          toolchain: ${{ matrix.toolchain }}
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # One cache per operating system and toolchain. Sharing a cache
+          # across toolchains means constant invalidation and no benefit.
+          key: ${{ matrix.toolchain }}
+          workspaces: ${{ env.WORKING_DIRECTORY }}
+
+      # --all-targets covers tests, benches and examples; example code that
+      # no longer compiles is the most commonly missed breakage in a Rust
+      # repository, because nothing else builds it.
+      - name: Test
+        run: cargo test --locked --all-features --all-targets --workspace
+
+      # No doc test step: brickify is a binary crate, and `cargo test --doc`
+      # refuses to run without a library target.
+
+      # Proves the crate builds with no optional features as well as with all
+      # of them. A feature-gated import that is used unconditionally compiles
+      # fine under --all-features and fails for the user who took the default.
+      - name: Build with no default features
+        run: cargo check --locked --no-default-features --workspace
+
+  # Compiles for every target the project supports but cannot run tests on.
+  # Deliberately not the release matrix: this is about finding the breakage
+  # early, not producing artifacts.
+  cross-build:
+    name: cross-build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          # The web version (`trunk build`). No musl or exotic Linux targets:
+          # winit and glow dlopen libGL, X11 and Wayland at run time, which a
+          # static musl binary cannot do.
+          - wasm32-unknown-unknown
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ matrix.target }}
+          workspaces: ${{ env.WORKING_DIRECTORY }}
+
+      - name: Build
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --locked --release --all-features --workspace --target "$TARGET"

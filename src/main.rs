@@ -72,7 +72,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::write(&out, text)?;
         let pieces: usize = m.parts_list().iter().map(|p| p.2).sum();
         let (groups, islands, _) = m.connectivity();
-        println!("{}×{} grid, {pieces} pieces, {groups} connected groups for {islands} islands → {out}", m.cols, m.rows);
+        println!(
+            "{}×{} grid, {pieces} pieces, {groups} connected groups for {islands} islands → {out}",
+            m.cols, m.rows
+        );
         return Ok(());
     }
 
@@ -83,7 +86,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eframe::run_native(
         "Brickify",
         options,
-        Box::new(move |cc| Ok(Box::new(app::BrickApp::new(&cc.egui_ctx, initial, settings)))),
+        Box::new(move |cc| {
+            Ok(Box::new(app::BrickApp::new(
+                &cc.egui_ctx,
+                initial,
+                settings,
+            )))
+        }),
     )?;
     Ok(())
 }
@@ -102,7 +111,13 @@ fn main() {
             .start(
                 canvas,
                 eframe::WebOptions::default(),
-                Box::new(|cc| Ok(Box::new(app::BrickApp::new(&cc.egui_ctx, None, Settings::default())))),
+                Box::new(|cc| {
+                    Ok(Box::new(app::BrickApp::new(
+                        &cc.egui_ctx,
+                        None,
+                        Settings::default(),
+                    )))
+                }),
             )
             .await;
         if let Some(loading) = web_sys::window()
