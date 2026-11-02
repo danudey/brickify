@@ -934,7 +934,7 @@ fn bridge(
         .collect();
     // Largest first; a 1x2 part always fits, so this is never empty.
     candidates.sort_by_key(|&(_, _, w, h, _)| std::cmp::Reverse(w * h));
-    let pick = if choice % 3 == 0 {
+    let pick = if choice.is_multiple_of(3) {
         (choice / 3) as usize % candidates.len()
     } else {
         0
@@ -1326,8 +1326,8 @@ fn merge_hybrid_bands(cells: &[Option<u16>], cols: u32, rows: u32, offset: u32) 
         }
     };
     for r in (0..rows).rev() {
-        let band_bottom = r + offset + 1 <= rows
-            && (rows - 1 - offset - r) % BRICK_ROWS == 0
+        let band_bottom = r + offset < rows
+            && (rows - 1 - offset - r).is_multiple_of(BRICK_ROWS)
             && r + 1 >= BRICK_ROWS;
         if band_bottom {
             let top = r + 1 - BRICK_ROWS;
