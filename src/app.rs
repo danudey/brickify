@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use eframe::egui::{self, Color32, Rect, Sense, Stroke, TextureHandle, pos2, vec2};
 
 use crate::geometry::{self, Tri};
-use crate::mosaic::{Layout, Mosaic, PartKind, Settings};
+use crate::mosaic::{Layout, Mosaic, Parts, Settings};
 use crate::palette::{self, COLOURS};
 use crate::source::{self, SourceImage};
 use crate::{export, platform, view3d};
@@ -177,17 +177,45 @@ impl BrickApp {
             ui.radio_value(&mut s.layout, Layout::Flat, "Flat mosaic");
             ui.radio_value(&mut s.layout, Layout::Upright, "Upright wall");
         });
-        if s.layout == Layout::Upright && s.kind == PartKind::Tile {
-            s.kind = PartKind::Brick;
+        if s.layout == Layout::Flat && s.parts == Parts::Hybrid {
+            s.parts = Parts::Plates;
         }
         ui.horizontal(|ui| {
-            let kinds: &[PartKind] = match s.layout {
-                Layout::Flat => &[PartKind::Plate, PartKind::Tile, PartKind::Brick],
-                Layout::Upright => &[PartKind::Brick, PartKind::Plate],
-            };
-            for &k in kinds {
-                ui.radio_value(&mut s.kind, k, k.label());
+            ui.radio_value(&mut s.parts, Parts::Plates, Parts::Plates.label());
+            ui.radio_value(&mut s.parts, Parts::Bricks, Parts::Bricks.label());
+            if s.layout == Layout::Upright {
+                ui.radio_value(&mut s.parts, Parts::Hybrid, Parts::Hybrid.label())
+                    .on_hover_text(
+                        "Bricks for areas of solid colour, plates for detail: fewer pieces, \
+                     with the vertical detail of plates.",
+                    );
             }
+        });
+        let smooth_tip = match s.layout {
+            Layout::Flat => "Use smooth tiles for the picture instead of plates with studs.",
+            Layout::Upright => {
+                "Use a smooth tile instead of a plate wherever nothing sits on top of it \
+                                (when a tile that size exists)."
+            }
+        };
+        ui.add_enabled(
+            s.parts != Parts::Bricks,
+            egui::Checkbox::new(&mut s.smooth_top, "Smooth top (tiles)"),
+        )
+        .on_hover_text(smooth_tip)
+        .on_disabled_hover_text(
+            "Only plates can be swapped for tiles: a tile on a brick would add a row.",
+        );
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut s.antialias, "Antialiasing").on_hover_text(
+                "Blend colours where a stud covers an edge, for the look of finer detail. \
+                 Off: each stud takes its main colour, so edges stay crisp.",
+            );
+            ui.checkbox(&mut s.dither, "Dithering").on_hover_text(
+                "Mix nearby LEGO colours to approximate gradients. Solid areas stay solid. \
+                 Dithering makes many single-stud parts: an upright wall with a border holds them, \
+                 but a flat mosaic's backing plates can't hold them all.",
+            );
         });
         ui.add(egui::Slider::new(&mut s.alpha_threshold, 0.05..=0.95).text("min. coverage"))
             .on_hover_text(
@@ -227,11 +255,30 @@ impl BrickApp {
             ui.add(egui::Slider::new(&mut s.border_width, 1..=4).text("border studs"));
         }
         match s.layout {
-            Layout::Flat => optional_colour(ui, "Backing plates", "backing", &mut s.backing, 0, &order, &s.enabled_colours)
-                .on_hover_text("A second layer of plates underneath that holds the mosaic together."),
-            Layout::Upright => optional_colour(ui, "Back layer", "backing", &mut s.backing, 0, &order, &s.enabled_colours).on_hover_text(
-                "Makes the wall two studs deep, with hidden parts behind the picture that bridge colour changes.",
-            ),
+            Layout::Flat => optional_colour(
+                ui,
+                "Backing plates",
+                "backing",
+                &mut s.backing,
+                0,
+                &order,
+                &s.enabled_colours,
+            )
+            .on_hover_text("A second layer of plates underneath that holds the mosaic together."),
+            Layout::Upright => {
+                let hybrid = s.parts == Parts::Hybrid;
+                ui.add_enabled_ui(!hybrid, |ui| {
+                    optional_colour(ui, "Back layer", "backing", &mut s.backing, 0, &order, &s.enabled_colours)
+                })
+                .inner
+                .on_hover_text(
+                    "Makes the wall two studs deep, with hidden parts behind the picture that bridge colour changes.",
+                )
+                .on_disabled_hover_text(
+                    "Not available in hybrid mode: its two-deep rows can't share space with 3-row bricks. \
+                     Use a border to hold the wall together instead.",
+                )
+            }
         };
         if self.mosaic.is_some() {
             let (groups, islands) = (self.connectivity.0, self.connectivity.1);
