@@ -97,14 +97,22 @@ pub fn by_code(code: u16) -> Option<&'static LegoColour> {
 pub fn to_lab(rgb: [f32; 3]) -> [f32; 3] {
     fn lin(v: f32) -> f32 {
         let v = v / 255.0;
-        if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
     }
     let (r, g, b) = (lin(rgb[0]), lin(rgb[1]), lin(rgb[2]));
     let x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047;
     let y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     let z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883;
     fn f(t: f32) -> f32 {
-        if t > 0.008856 { t.cbrt() } else { 7.787 * t + 16.0 / 116.0 }
+        if t > 0.008856 {
+            t.cbrt()
+        } else {
+            7.787 * t + 16.0 / 116.0
+        }
     }
     let (fx, fy, fz) = (f(x), f(y), f(z));
     [116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)]
@@ -153,8 +161,18 @@ pub fn lch(rgb: [u8; 3]) -> [f32; 3] {
 }
 
 /// Colour families, in display order.
-pub const FAMILIES: &[&str] =
-    &["White, greys and black", "Reds", "Oranges", "Yellows", "Greens", "Turquoises", "Blues", "Purples", "Pinks", "Browns"];
+pub const FAMILIES: &[&str] = &[
+    "White, greys and black",
+    "Reds",
+    "Oranges",
+    "Yellows",
+    "Greens",
+    "Turquoises",
+    "Blues",
+    "Purples",
+    "Pinks",
+    "Browns",
+];
 
 /// Index into [`FAMILIES`], judged from the colour itself because LEGO names are a poor guide.
 pub fn family(c: &LegoColour) -> usize {
@@ -226,7 +244,12 @@ mod tests {
             let (a, b) = (family(pair[0]), family(pair[1]));
             assert!(a <= b, "{} before {}", pair[0].name, pair[1].name);
             if a == b {
-                assert!(lch(pair[0].rgb)[0] >= lch(pair[1].rgb)[0], "{} before {}", pair[0].name, pair[1].name);
+                assert!(
+                    lch(pair[0].rgb)[0] >= lch(pair[1].rgb)[0],
+                    "{} before {}",
+                    pair[0].name,
+                    pair[1].name
+                );
             }
         }
         assert!(pos(&list, "Bright Light Blue") < pos(&list, "Blue"));
@@ -242,8 +265,10 @@ mod tests {
         let colours = sorted(SortOrder::Hue);
         let neutrals = colours.iter().take_while(|c| is_neutral(c)).count();
         assert_eq!(neutrals, COLOURS.iter().filter(|c| is_neutral(c)).count());
-        let hues: Vec<f32> =
-            colours[neutrals..].iter().map(|c| (lch(c.rgb)[2] - 20.0).rem_euclid(360.0)).collect();
+        let hues: Vec<f32> = colours[neutrals..]
+            .iter()
+            .map(|c| (lch(c.rgb)[2] - 20.0).rem_euclid(360.0))
+            .collect();
         for pair in hues.windows(2) {
             assert!((pair[0] / 15.0).floor() <= (pair[1] / 15.0).floor());
         }

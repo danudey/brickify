@@ -212,7 +212,14 @@ impl Mosaic {
                 repair_wall(wall, cols, rows, s.kind)
             }
         };
-        Mosaic { cols, rows, layout: s.layout, kind: s.kind, cells, bricks }
+        Mosaic {
+            cols,
+            rows,
+            layout: s.layout,
+            kind: s.kind,
+            cells,
+            bricks,
+        }
     }
 
     pub fn cell(&self, col: u32, row: u32) -> Option<u16> {
@@ -232,7 +239,11 @@ impl Mosaic {
     pub fn size_mm(&self) -> (f32, f32, f32) {
         let stud_mm = 8.0;
         let ldu_mm = 0.4;
-        let layers = if self.bricks.iter().any(|b| b.layer == 1) { 8.0 } else { 0.0 };
+        let layers = if self.bricks.iter().any(|b| b.layer == 1) {
+            8.0
+        } else {
+            0.0
+        };
         match self.layout {
             Layout::Flat => (
                 self.cols as f32 * stud_mm,
@@ -253,7 +264,9 @@ impl Mosaic {
     pub fn connectivity(&self) -> (usize, usize, Vec<bool>) {
         let (cols, rows) = (self.cols as usize, self.rows as usize);
         let (mut groups, _) = part_groups(self.layout, &self.bricks, self.cols, self.rows);
-        let group_count = (0..self.bricks.len()).filter(|&i| groups.find(i) == i).count();
+        let group_count = (0..self.bricks.len())
+            .filter(|&i| groups.find(i) == i)
+            .count();
 
         let mut islands = UnionFind::new(cols * rows);
         for r in 0..rows {
@@ -270,12 +283,17 @@ impl Mosaic {
                 }
             }
         }
-        let island_count = (0..cols * rows).filter(|&i| self.cells[i].is_some() && islands.find(i) == i).count();
+        let island_count = (0..cols * rows)
+            .filter(|&i| self.cells[i].is_some() && islands.find(i) == i)
+            .count();
 
         // Size of each group, and the biggest group on each island.
         let group_of: Vec<usize> = (0..self.bricks.len()).map(|i| groups.find(i)).collect();
-        let island_of: Vec<usize> =
-            self.bricks.iter().map(|b| islands.find(b.row as usize * cols + b.col as usize)).collect();
+        let island_of: Vec<usize> = self
+            .bricks
+            .iter()
+            .map(|b| islands.find(b.row as usize * cols + b.col as usize))
+            .collect();
         let mut size = std::collections::HashMap::new();
         for &g in &group_of {
             *size.entry(g).or_insert(0usize) += 1;
@@ -287,7 +305,9 @@ impl Mosaic {
                 *best = g;
             }
         }
-        let loose = (0..self.bricks.len()).map(|i| main[&island_of[i]] != group_of[i]).collect();
+        let loose = (0..self.bricks.len())
+            .map(|i| main[&island_of[i]] != group_of[i])
+            .collect();
         (group_count, island_count, loose)
     }
 }
@@ -452,19 +472,25 @@ fn merge_flat(
         if c + w > cols || r + h > rows {
             return false;
         }
-        (r..r + h).all(|rr| (c..c + w).all(|cc| !used[idx(cc, rr)] && cells[idx(cc, rr)] == Some(colour)))
+        (r..r + h)
+            .all(|rr| (c..c + w).all(|cc| !used[idx(cc, rr)] && cells[idx(cc, rr)] == Some(colour)))
     };
     let mut bricks = Vec::new();
     for r in 0..rows {
         for c in 0..cols {
-            let Some(colour) = cells[idx(c, r)] else { continue };
+            let Some(colour) = cells[idx(c, r)] else {
+                continue;
+            };
             if used[idx(c, r)] {
                 continue;
             }
             let mut placed = (1, 1, kind.part_for(1, 1));
             for &(long, short, part) in kind.catalogue() {
                 let orientations = [(long, short), (short, long)];
-                if let Some(&(w, h)) = orientations.iter().find(|&&(w, h)| fits(&used, c, r, w, h, colour)) {
+                if let Some(&(w, h)) = orientations
+                    .iter()
+                    .find(|&&(w, h)| fits(&used, c, r, w, h, colour))
+                {
                     placed = (w, h, part);
                     break;
                 }
@@ -475,7 +501,18 @@ fn merge_flat(
                     used[idx(cc, rr)] = true;
                 }
             }
-            bricks.push(Brick { col: c, row: r, w, h, colour, part, kind, layer, z: 0, d: 1 });
+            bricks.push(Brick {
+                col: c,
+                row: r,
+                w,
+                h,
+                colour,
+                part,
+                kind,
+                layer,
+                z: 0,
+                d: 1,
+            });
         }
     }
     bricks
@@ -484,7 +521,13 @@ fn merge_flat(
 /// Backing plates for a flat mosaic. Like [`merge_flat`], but at each cell it picks the
 /// plate whose edges line up least with the picture layer's seams, so that every seam
 /// above is bridged by a plate below.
-fn merge_backing(cells: &[Option<u16>], top: &[Brick], cols: u32, rows: u32, colour: u16) -> Vec<Brick> {
+fn merge_backing(
+    cells: &[Option<u16>],
+    top: &[Brick],
+    cols: u32,
+    rows: u32,
+    colour: u16,
+) -> Vec<Brick> {
     let idx = |c: u32, r: u32| (r * cols + c) as usize;
     let mut top_id = vec![usize::MAX; cells.len()];
     for (i, b) in top.iter().enumerate() {
@@ -495,7 +538,9 @@ fn merge_backing(cells: &[Option<u16>], top: &[Brick], cols: u32, rows: u32, col
         }
     }
     // A seam between two cells of the picture layer that belong to different parts.
-    let seam = |a: usize, b: usize| top_id[a] != usize::MAX && top_id[b] != usize::MAX && top_id[a] != top_id[b];
+    let seam = |a: usize, b: usize| {
+        top_id[a] != usize::MAX && top_id[b] != usize::MAX && top_id[a] != top_id[b]
+    };
     let mut used = vec![false; cells.len()];
     let mut bricks = Vec::new();
     for r in 0..rows {
@@ -506,15 +551,19 @@ fn merge_backing(cells: &[Option<u16>], top: &[Brick], cols: u32, rows: u32, col
             let fits = |w: u32, h: u32| {
                 c + w <= cols
                     && r + h <= rows
-                    && (r..r + h).all(|rr| (c..c + w).all(|cc| !used[idx(cc, rr)] && cells[idx(cc, rr)].is_some()))
+                    && (r..r + h).all(|rr| {
+                        (c..c + w).all(|cc| !used[idx(cc, rr)] && cells[idx(cc, rr)].is_some())
+                    })
             };
             // Count the plate's right and bottom edge segments that sit directly under a seam.
             // (Its left and top edges are already fixed by the plates placed before it.)
             // If no backing edge lies under a seam, every seam is bridged and the whole
             // picture holds together, so that matters more than using big plates.
             let aligned = |w: u32, h: u32| {
-                let right = (r..r + h).filter(|&rr| c + w < cols && seam(idx(c + w - 1, rr), idx(c + w, rr)));
-                let bottom = (c..c + w).filter(|&cc| r + h < rows && seam(idx(cc, r + h - 1), idx(cc, r + h)));
+                let right = (r..r + h)
+                    .filter(|&rr| c + w < cols && seam(idx(c + w - 1, rr), idx(c + w, rr)));
+                let bottom = (c..c + w)
+                    .filter(|&cc| r + h < rows && seam(idx(cc, r + h - 1), idx(cc, r + h)));
                 right.count() + bottom.count()
             };
             let (w, h, part) = PartKind::Plate
@@ -529,7 +578,18 @@ fn merge_backing(cells: &[Option<u16>], top: &[Brick], cols: u32, rows: u32, col
                     used[idx(cc, rr)] = true;
                 }
             }
-            bricks.push(Brick { col: c, row: r, w, h, colour, part, kind: PartKind::Plate, layer: 1, z: 0, d: 1 });
+            bricks.push(Brick {
+                col: c,
+                row: r,
+                w,
+                h,
+                colour,
+                part,
+                kind: PartKind::Plate,
+                layer: 1,
+                z: 0,
+                d: 1,
+            });
         }
     }
     bricks
@@ -588,15 +648,41 @@ fn repair(
         let choice = random();
         if fix_top {
             let kind = top[occupant[a * 2]].kind;
-            let rebuilt = bridge(cells, &top, occupant[a * 2], occupant[b * 2], a, b, cols, rows, choice, |region| {
-                merge_flat(region, cols, rows, kind, 0)
-            });
+            let rebuilt = bridge(
+                cells,
+                &top,
+                occupant[a * 2],
+                occupant[b * 2],
+                a,
+                b,
+                cols,
+                rows,
+                choice,
+                |region| merge_flat(region, cols, rows, kind, 0),
+            );
             top = rebuilt;
         } else {
             let n_top = top.len();
-            let rebuilt = bridge(cells, &backing, occupant[a * 2 + 1] - n_top, occupant[b * 2 + 1] - n_top, a, b, cols, rows, choice, |region| {
-                merge_backing(region, &top, cols, rows, region.iter().flatten().next().copied().unwrap_or(0))
-            });
+            let rebuilt = bridge(
+                cells,
+                &backing,
+                occupant[a * 2 + 1] - n_top,
+                occupant[b * 2 + 1] - n_top,
+                a,
+                b,
+                cols,
+                rows,
+                choice,
+                |region| {
+                    merge_backing(
+                        region,
+                        &top,
+                        cols,
+                        rows,
+                        region.iter().flatten().next().copied().unwrap_or(0),
+                    )
+                },
+            );
             backing = rebuilt;
         }
     }
@@ -629,7 +715,11 @@ fn bridge(
             for c in p.col..p.col + p.w {
                 let i = (r * cols + c) as usize;
                 // The backing is one colour; the picture keeps each cell's own colour.
-                region[i] = if template.layer == 1 { Some(template.colour) } else { cells[i] };
+                region[i] = if template.layer == 1 {
+                    Some(template.colour)
+                } else {
+                    cells[i]
+                };
             }
         }
     }
@@ -648,22 +738,41 @@ fn bridge(
         .flat_map(|&(long, short, part)| [(long, short, part), (short, long, part)])
         .flat_map(|(w, h, part)| {
             let cs = (bc + 1).saturating_sub(w)..=ac;
-            cs.flat_map(move |c0| ((br + 1).saturating_sub(h)..=ar).map(move |r0| (c0, r0, w, h, part)))
+            cs.flat_map(move |c0| {
+                ((br + 1).saturating_sub(h)..=ar).map(move |r0| (c0, r0, w, h, part))
+            })
         })
         .filter(|&(c0, r0, w, h, _)| c0 + w > bc && r0 + h > br && inside(c0, r0, w, h))
         .collect();
     // Largest first; a 1x2 part always fits, so this is never empty.
     candidates.sort_by_key(|&(_, _, w, h, _)| std::cmp::Reverse(w * h));
-    let pick = if choice % 3 == 0 { (choice / 3) as usize % candidates.len() } else { 0 };
+    let pick = if choice.is_multiple_of(3) {
+        (choice / 3) as usize % candidates.len()
+    } else {
+        0
+    };
     let (c0, r0, w, h, part) = candidates[pick];
     for r in r0..r0 + h {
         for c in c0..c0 + w {
             region[(r * cols + c) as usize] = None;
         }
     }
-    let mut out: Vec<Brick> = layer.iter().enumerate().filter(|&(i, _)| i != pa && i != pb).map(|(_, b)| b.clone()).collect();
+    let mut out: Vec<Brick> = layer
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| i != pa && i != pb)
+        .map(|(_, b)| b.clone())
+        .collect();
     out.extend(retile(&region));
-    out.push(Brick { col: c0, row: r0, w, h, colour: colour.expect("cell is filled"), part, ..template });
+    out.push(Brick {
+        col: c0,
+        row: r0,
+        w,
+        h,
+        colour: colour.expect("cell is filled"),
+        part,
+        ..template
+    });
     out
 }
 
@@ -673,7 +782,12 @@ fn bridge(
 fn repair_wall(mut bricks: Vec<Brick>, cols: u32, rows: u32, kind: PartKind) -> Vec<Brick> {
     const MAX_REPAIRS: usize = 400;
     let lengths = |d: u32| -> Vec<(u32, &'static str)> {
-        let mut l: Vec<_> = kind.catalogue().iter().filter(|p| p.1 == d).map(|p| (p.0, p.2)).collect();
+        let mut l: Vec<_> = kind
+            .catalogue()
+            .iter()
+            .filter(|p| p.1 == d)
+            .map(|p| (p.0, p.2))
+            .collect();
         if d == 2 {
             l.push((1, kind.part_for(2, 1)));
         }
@@ -709,25 +823,29 @@ fn repair_wall(mut bricks: Vec<Brick>, cols: u32, rows: u32, kind: PartKind) -> 
         }
         let (c, r) = loose[random() as usize % loose.len()];
         // Rows and depth slots where one part could span columns c and c + 1.
-        let options: Vec<(usize, usize)> = [Some(r), r.checked_sub(1), (r + 1 < rows).then_some(r + 1)]
-            .into_iter()
-            .flatten()
-            .flat_map(|row| (0..2).map(move |z| (row, z)))
-            .map(|(row, z)| (at(c, row, z), at(c + 1, row, z)))
-            .filter(|&(p, q)| {
-                p != usize::MAX
-                    && q != usize::MAX
-                    && p != q
-                    && bricks[p].colour == bricks[q].colour
-                    && (bricks[p].z, bricks[p].d) == (bricks[q].z, bricks[q].d)
-            })
-            .collect();
+        let options: Vec<(usize, usize)> =
+            [Some(r), r.checked_sub(1), (r + 1 < rows).then_some(r + 1)]
+                .into_iter()
+                .flatten()
+                .flat_map(|row| (0..2).map(move |z| (row, z)))
+                .map(|(row, z)| (at(c, row, z), at(c + 1, row, z)))
+                .filter(|&(p, q)| {
+                    p != usize::MAX
+                        && q != usize::MAX
+                        && p != q
+                        && bricks[p].colour == bricks[q].colour
+                        && (bricks[p].z, bricks[p].d) == (bricks[q].z, bricks[q].d)
+                })
+                .collect();
         if options.is_empty() {
             continue; // e.g. a colour change in a one-row-thick stroke: no part can span it
         }
         let (p, q) = options[random() as usize % options.len()];
         let template = bricks[p].clone();
-        let (start, end) = (bricks[p].col.min(bricks[q].col), (bricks[p].col + bricks[p].w).max(bricks[q].col + bricks[q].w));
+        let (start, end) = (
+            bricks[p].col.min(bricks[q].col),
+            (bricks[p].col + bricks[p].w).max(bricks[q].col + bricks[q].w),
+        );
         let lengths = lengths(template.d);
         // A part spanning c and c + 1, inside start..end; usually the longest, sometimes another.
         let mut spans: Vec<(u32, u32, &'static str)> = lengths
@@ -737,21 +855,35 @@ fn repair_wall(mut bricks: Vec<Brick>, cols: u32, rows: u32, kind: PartKind) -> 
             .collect();
         spans.sort_by_key(|s| std::cmp::Reverse(s.1));
         let choice = random();
-        let (x, len, part) = spans[if choice % 3 == 0 { (choice / 3) as usize % spans.len() } else { 0 }];
+        let (x, len, part) = spans[if choice % 3 == 0 {
+            (choice / 3) as usize % spans.len()
+        } else {
+            0
+        }];
         let mut pieces = split_run(start, x, &lengths, |_| false);
         pieces.push((x, len, part));
         pieces.extend(split_run(x + len, end, &lengths, |_| false));
         let (hi, lo) = (p.max(q), p.min(q));
         bricks.swap_remove(hi);
         bricks.swap_remove(lo);
-        bricks.extend(pieces.into_iter().map(|(col, w, part)| Brick { col, w, part, ..template.clone() }));
+        bricks.extend(pieces.into_iter().map(|(col, w, part)| Brick {
+            col,
+            w,
+            part,
+            ..template.clone()
+        }));
     }
     best.1
 }
 
 /// Splits columns `start..end` into parts with the given lengths (longest first), avoiding
 /// part ends where `avoid` is true unless nothing else fits.
-fn split_run(start: u32, end: u32, lengths: &[(u32, &'static str)], avoid: impl Fn(u32) -> bool) -> Vec<(u32, u32, &'static str)> {
+fn split_run(
+    start: u32,
+    end: u32,
+    lengths: &[(u32, &'static str)],
+    avoid: impl Fn(u32) -> bool,
+) -> Vec<(u32, u32, &'static str)> {
     let mut out = Vec::new();
     let mut c = start;
     while c < end {
@@ -775,7 +907,9 @@ fn runs<T: PartialEq + Copy>(row: &[Option<T>]) -> Vec<(u32, u32, T)> {
             c += 1;
             continue;
         };
-        let end = (c..row.len()).find(|&cc| row[cc] != Some(v)).unwrap_or(row.len());
+        let end = (c..row.len())
+            .find(|&cc| row[cc] != Some(v))
+            .unwrap_or(row.len());
         out.push((c as u32, end as u32, v));
         c = end;
     }
@@ -788,9 +922,19 @@ fn runs<T: PartialEq + Copy>(row: &[Option<T>]) -> Vec<(u32, u32, T)> {
 /// - two-deep rows of picture-coloured parts;
 /// - rows with picture parts in front and backing-coloured parts behind that span the
 ///   picture's seams, tying the two-deep rows above and below together.
-fn merge_wall(cells: &[Option<u16>], cols: u32, rows: u32, kind: PartKind, backing: Option<u16>) -> Vec<Brick> {
+fn merge_wall(
+    cells: &[Option<u16>],
+    cols: u32,
+    rows: u32,
+    kind: PartKind,
+    backing: Option<u16>,
+) -> Vec<Brick> {
     let lengths = |short: u32| -> Vec<(u32, &'static str)> {
-        kind.catalogue().iter().filter(|p| p.1 == short).map(|p| (p.0, p.2)).collect()
+        kind.catalogue()
+            .iter()
+            .filter(|p| p.1 == short)
+            .map(|p| (p.0, p.2))
+            .collect()
     };
     let single = lengths(1);
     let mut double = lengths(2);
@@ -804,10 +948,23 @@ fn merge_wall(cells: &[Option<u16>], cols: u32, rows: u32, kind: PartKind, backi
         let mut seams = vec![false; cols as usize + 1];
         let two_deep = backing.is_some() && n % 2 == 0;
         for (start, end, colour) in runs(row) {
-            let parts = split_run(start, end, if two_deep { &double } else { &single }, |c| seams_below[c as usize]);
+            let parts = split_run(start, end, if two_deep { &double } else { &single }, |c| {
+                seams_below[c as usize]
+            });
             for (c, w, part) in parts {
                 let d = if two_deep { 2 } else { 1 };
-                bricks.push(Brick { col: c, row: r, w, h: 1, colour, part, kind, layer: 0, z: 0, d });
+                bricks.push(Brick {
+                    col: c,
+                    row: r,
+                    w,
+                    h: 1,
+                    colour,
+                    part,
+                    kind,
+                    layer: 0,
+                    z: 0,
+                    d,
+                });
                 seams[c as usize] = true;
                 seams[(c + w) as usize] = true;
             }
@@ -816,7 +973,18 @@ fn merge_wall(cells: &[Option<u16>], cols: u32, rows: u32, kind: PartKind, backi
             let filled: Vec<Option<()>> = row.iter().map(|c| c.map(|_| ())).collect();
             for (start, end, ()) in runs(&filled) {
                 for (c, w, part) in split_run(start, end, &single, |c| seams[c as usize]) {
-                    bricks.push(Brick { col: c, row: r, w, h: 1, colour, part, kind, layer: 0, z: 1, d: 1 });
+                    bricks.push(Brick {
+                        col: c,
+                        row: r,
+                        w,
+                        h: 1,
+                        colour,
+                        part,
+                        kind,
+                        layer: 0,
+                        z: 1,
+                        d: 1,
+                    });
                 }
             }
         }

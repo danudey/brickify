@@ -18,7 +18,11 @@ pub fn load(name: &str, bytes: &[u8]) -> Result<SourceImage, String> {
         || lower.ends_with(".svgz")
         || bytes.starts_with(b"<?xml")
         || bytes.starts_with(b"<svg");
-    if looks_like_svg { load_svg(bytes) } else { load_raster(bytes) }
+    if looks_like_svg {
+        load_svg(bytes)
+    } else {
+        load_raster(bytes)
+    }
 }
 
 fn load_svg(bytes: &[u8]) -> Result<SourceImage, String> {
@@ -28,9 +32,12 @@ fn load_svg(bytes: &[u8]) -> Result<SourceImage, String> {
     let scale = SVG_RENDER_SIZE / size.width().max(size.height());
     let width = (size.width() * scale).round().max(1.0) as u32;
     let height = (size.height() * scale).round().max(1.0) as u32;
-    let mut pixmap =
-        tiny_skia::Pixmap::new(width, height).ok_or("SVG has an invalid size")?;
-    resvg::render(&tree, tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
+    let mut pixmap = tiny_skia::Pixmap::new(width, height).ok_or("SVG has an invalid size")?;
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
     let rgba = pixmap
         .pixels()
         .iter()
@@ -39,7 +46,11 @@ fn load_svg(bytes: &[u8]) -> Result<SourceImage, String> {
             [c.red(), c.green(), c.blue(), c.alpha()]
         })
         .collect();
-    Ok(SourceImage { width, height, rgba })
+    Ok(SourceImage {
+        width,
+        height,
+        rgba,
+    })
 }
 
 fn load_raster(bytes: &[u8]) -> Result<SourceImage, String> {

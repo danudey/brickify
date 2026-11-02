@@ -1,0 +1,39 @@
+# cargo-deny configuration, read by the `cargo deny` jobs in
+# .github/workflows/audit.yml. Run locally with `cargo deny check`.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+# Advisories that have been assessed and cannot be acted on. Say why, and when
+# to look again.
+ignore = []
+
+[licenses]
+version = 2
+# What brickify is willing to ship. cargo-deny fails on anything not listed.
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "MIT",
+  "Unicode-3.0",
+  "Zlib",
+  # The fonts egui embeds through its `default_fonts` feature.
+  "OFL-1.1",
+  "Ubuntu-font-1.0",
+]
+
+[bans]
+# A GUI dependency tree carries several versions of windows-sys, bitflags and
+# friends; report them, but do not fail on them.
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

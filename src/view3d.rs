@@ -13,11 +13,19 @@ pub struct Camera {
 
 impl Camera {
     pub fn flat() -> Self {
-        Self { yaw: 0.0, pitch: 0.9, zoom: 1.4 }
+        Self {
+            yaw: 0.0,
+            pitch: 0.9,
+            zoom: 1.4,
+        }
     }
 
     pub fn upright() -> Self {
-        Self { yaw: 0.35, pitch: 0.25, zoom: 1.4 }
+        Self {
+            yaw: 0.35,
+            pitch: 0.25,
+            zoom: 1.4,
+        }
     }
 }
 
@@ -39,7 +47,11 @@ pub fn show(ui: &mut egui::Ui, tris: &[Tri], cam: &mut Camera) {
     }
 
     let (lo, hi) = geometry::bounds(tris);
-    let centre = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0];
+    let centre = [
+        (lo[0] + hi[0]) / 2.0,
+        (lo[1] + hi[1]) / 2.0,
+        (lo[2] + hi[2]) / 2.0,
+    ];
     let radius = (0..3).map(|i| hi[i] - lo[i]).fold(0.0f32, f32::max) / 2.0;
     let fov = 35f32.to_radians();
     let dist = radius / (fov / 2.0).tan() * cam.zoom + radius;
@@ -80,7 +92,11 @@ pub fn show(ui: &mut egui::Ui, tris: &[Tri], cam: &mut Camera) {
     for (_, pts, colour) in visible {
         let base = mesh.vertices.len() as u32;
         for pos in pts {
-            mesh.vertices.push(Vertex { pos, uv: egui::epaint::WHITE_UV, color: colour });
+            mesh.vertices.push(Vertex {
+                pos,
+                uv: egui::epaint::WHITE_UV,
+                color: colour,
+            });
         }
         mesh.indices.extend([base, base + 1, base + 2]);
     }

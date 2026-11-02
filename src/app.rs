@@ -42,11 +42,15 @@ pub struct BrickApp {
     camera: view3d::Camera,
     status: String,
     /// Files picked asynchronously (web) or dropped onto the window arrive here.
-    incoming: Arc<Mutex<Option<(String, Vec<u8>)>>>,
+    incoming: platform::Incoming,
 }
 
 impl BrickApp {
-    pub fn new(ctx: &egui::Context, initial: Option<(String, Vec<u8>)>, settings: Settings) -> Self {
+    pub fn new(
+        ctx: &egui::Context,
+        initial: Option<(String, Vec<u8>)>,
+        settings: Settings,
+    ) -> Self {
         // The views paint dark backgrounds, so always use the dark theme (not the system's),
         // with brighter text than egui's default for comfortable contrast.
         ctx.set_theme(egui::Theme::Dark);
@@ -81,7 +85,11 @@ impl BrickApp {
                 );
                 let texture = ctx.load_texture(&name, colour, egui::TextureOptions::LINEAR);
                 self.status = format!("Loaded {name} ({}×{} px).", image.width, image.height);
-                self.loaded = Some(Loaded { name, image, texture });
+                self.loaded = Some(Loaded {
+                    name,
+                    image,
+                    texture,
+                });
                 self.built_with = None;
             }
             Err(e) => self.status = e,
@@ -91,7 +99,11 @@ impl BrickApp {
     fn rebuild_if_needed(&mut self) {
         let Some(loaded) = &self.loaded else { return };
         if self.built_with.as_ref() != Some(&self.settings) {
-            if self.built_with.as_ref().is_none_or(|b| b.layout != self.settings.layout) {
+            if self
+                .built_with
+                .as_ref()
+                .is_none_or(|b| b.layout != self.settings.layout)
+            {
                 self.camera = match self.settings.layout {
                     Layout::Flat => view3d::Camera::flat(),
                     Layout::Upright => view3d::Camera::upright(),
@@ -114,7 +126,12 @@ impl BrickApp {
     fn base_name(&self) -> String {
         self.loaded
             .as_ref()
-            .map(|l| l.name.rsplit_once('.').map_or(l.name.as_str(), |(stem, _)| stem).to_string())
+            .map(|l| {
+                l.name
+                    .rsplit_once('.')
+                    .map_or(l.name.as_str(), |(stem, _)| stem)
+                    .to_string()
+            })
             .unwrap_or_else(|| "model".into())
     }
 
@@ -133,7 +150,11 @@ impl BrickApp {
             if ui.button("−").clicked() {
                 s.width = s.width.saturating_sub(1).max(4);
             }
-            ui.add(egui::Slider::new(&mut s.width, 4..=256).suffix(" studs wide").logarithmic(true));
+            ui.add(
+                egui::Slider::new(&mut s.width, 4..=256)
+                    .suffix(" studs wide")
+                    .logarithmic(true),
+            );
             if ui.button("+").clicked() {
                 s.width = (s.width + 1).min(256);
             }
@@ -169,16 +190,39 @@ impl BrickApp {
             }
         });
         ui.add(egui::Slider::new(&mut s.alpha_threshold, 0.05..=0.95).text("min. coverage"))
-            .on_hover_text("How much of a stud's area must be covered by the image to place a part there.");
+            .on_hover_text(
+                "How much of a stud's area must be covered by the image to place a part there.",
+            );
 
-        optional_colour(ui, "Fill background", "bg", &mut s.background, 15, &order, &s.enabled_colours);
+        optional_colour(
+            ui,
+            "Fill background",
+            "bg",
+            &mut s.background,
+            15,
+            &order,
+            &s.enabled_colours,
+        );
         let border_tip = match s.layout {
-            Layout::Upright => "An outline around the picture. Parts in a wall grip the rows above and below, \
-                                so the border holds loose parts and colour changes together.",
-            Layout::Flat => "A frame around the picture. In a flat mosaic, parts side by side don't grip \
-                             each other, so only backing plates hold the picture together.",
+            Layout::Upright => {
+                "An outline around the picture. Parts in a wall grip the rows above and below, \
+                                so the border holds loose parts and colour changes together."
+            }
+            Layout::Flat => {
+                "A frame around the picture. In a flat mosaic, parts side by side don't grip \
+                             each other, so only backing plates hold the picture together."
+            }
         };
-        optional_colour(ui, "Border", "border", &mut s.border, 0, &order, &s.enabled_colours).on_hover_text(border_tip);
+        optional_colour(
+            ui,
+            "Border",
+            "border",
+            &mut s.border,
+            0,
+            &order,
+            &s.enabled_colours,
+        )
+        .on_hover_text(border_tip);
         if s.border.is_some() {
             ui.add(egui::Slider::new(&mut s.border_width, 1..=4).text("border studs"));
         }
@@ -213,47 +257,56 @@ impl BrickApp {
             }
         }
 
-        egui::CollapsingHeader::new(format!("Colours ({} enabled)", s.enabled_colours.len())).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                if ui.small_button("All").clicked() {
-                    s.enabled_colours = COLOURS.iter().map(|c| c.code).collect();
-                }
-                if ui.small_button("Common").clicked() {
-                    s.enabled_colours = palette::default_enabled();
-                }
-                if ui.small_button("None").clicked() {
-                    s.enabled_colours.clear();
-                }
-            });
-            ui.horizontal(|ui| {
-                ui.label("Sort:");
-                ui.radio_value(&mut self.colour_order, palette::SortOrder::Family, "By family");
-                ui.radio_value(&mut self.colour_order, palette::SortOrder::Hue, "By hue");
-            });
-            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-                let mut last_family = None;
-                for c in &order {
-                    if self.colour_order == palette::SortOrder::Family {
-                        let family = palette::family(c);
-                        if last_family != Some(family) {
-                            section_heading(ui, palette::FAMILIES[family]);
-                            last_family = Some(family);
-                        }
+        egui::CollapsingHeader::new(format!("Colours ({} enabled)", s.enabled_colours.len())).show(
+            ui,
+            |ui| {
+                ui.horizontal(|ui| {
+                    if ui.small_button("All").clicked() {
+                        s.enabled_colours = COLOURS.iter().map(|c| c.code).collect();
                     }
-                    let mut on = s.enabled_colours.contains(&c.code);
-                    ui.horizontal(|ui| {
-                        swatch(ui, c.code);
-                        if ui.checkbox(&mut on, c.name).changed() {
-                            if on {
-                                s.enabled_colours.push(c.code);
-                            } else {
-                                s.enabled_colours.retain(|&x| x != c.code);
+                    if ui.small_button("Common").clicked() {
+                        s.enabled_colours = palette::default_enabled();
+                    }
+                    if ui.small_button("None").clicked() {
+                        s.enabled_colours.clear();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Sort:");
+                    ui.radio_value(
+                        &mut self.colour_order,
+                        palette::SortOrder::Family,
+                        "By family",
+                    );
+                    ui.radio_value(&mut self.colour_order, palette::SortOrder::Hue, "By hue");
+                });
+                egui::ScrollArea::vertical()
+                    .max_height(260.0)
+                    .show(ui, |ui| {
+                        let mut last_family = None;
+                        for c in &order {
+                            if self.colour_order == palette::SortOrder::Family {
+                                let family = palette::family(c);
+                                if last_family != Some(family) {
+                                    section_heading(ui, palette::FAMILIES[family]);
+                                    last_family = Some(family);
+                                }
                             }
+                            let mut on = s.enabled_colours.contains(&c.code);
+                            ui.horizontal(|ui| {
+                                swatch(ui, c.code);
+                                if ui.checkbox(&mut on, c.name).changed() {
+                                    if on {
+                                        s.enabled_colours.push(c.code);
+                                    } else {
+                                        s.enabled_colours.retain(|&x| x != c.code);
+                                    }
+                                }
+                            });
                         }
                     });
-                }
-            });
-        });
+            },
+        );
 
         ui.separator();
         ui.checkbox(&mut self.studs, "Show studs in 3D");
@@ -261,18 +314,28 @@ impl BrickApp {
         let ready = self.mosaic.is_some();
         ui.horizontal_wrapped(|ui| {
             let name = self.base_name();
-            if ui.add_enabled(ready, egui::Button::new("LDraw (.ldr)")).clicked()
+            if ui
+                .add_enabled(ready, egui::Button::new("LDraw (.ldr)"))
+                .clicked()
                 && let Some(m) = &self.mosaic
             {
                 platform::save_file(&format!("{name}.ldr"), export::ldraw(m, &name).as_bytes());
             }
-            if ui.add_enabled(ready, egui::Button::new("3D model (.obj)")).clicked() {
+            if ui
+                .add_enabled(ready, egui::Button::new("3D model (.obj)"))
+                .clicked()
+            {
                 platform::save_file(&format!("{name}.obj"), export::obj(&self.tris).as_bytes());
             }
-            if ui.add_enabled(ready, egui::Button::new("Parts list (.csv)")).clicked()
+            if ui
+                .add_enabled(ready, egui::Button::new("Parts list (.csv)"))
+                .clicked()
                 && let Some(m) = &self.mosaic
             {
-                platform::save_file(&format!("{name}-parts.csv"), export::parts_csv(m).as_bytes());
+                platform::save_file(
+                    &format!("{name}-parts.csv"),
+                    export::parts_csv(m).as_bytes(),
+                );
             }
         });
 
@@ -313,7 +376,9 @@ impl BrickApp {
             .iter()
             .zip(loose)
             .filter(|(_, l)| **l)
-            .flat_map(|(b, _)| (b.row..b.row + b.h).flat_map(move |r| (b.col..b.col + b.w).map(move |c| (c, r))))
+            .flat_map(|(b, _)| {
+                (b.row..b.row + b.h).flat_map(move |r| (b.col..b.col + b.w).map(move |c| (c, r)))
+            })
             .collect();
         for b in m.bricks.iter().filter(|b| b.layer == 0 && b.z == 0) {
             let rgb = palette::by_code(b.colour).map_or([255, 0, 255], |c| c.rgb);
@@ -322,8 +387,18 @@ impl BrickApp {
             let r = Rect::from_min_size(min, vec2(b.w as f32 * cell.x, b.h as f32 * cell.y));
             // Very dark parts (like LEGO black) get a lighter edge so they stand out from the background.
             let dark = rgb.iter().map(|&v| v as u32).sum::<u32>() < 3 * 70;
-            let edge = if dark { Stroke::new(1.0, Color32::from_gray(95)) } else { Stroke::NONE };
-            painter.rect(r.shrink(0.5), scale * 0.08, fill, edge, egui::StrokeKind::Inside);
+            let edge = if dark {
+                Stroke::new(1.0, Color32::from_gray(95))
+            } else {
+                Stroke::NONE
+            };
+            painter.rect(
+                r.shrink(0.5),
+                scale * 0.08,
+                fill,
+                edge,
+                egui::StrokeKind::Inside,
+            );
             if loose_cells.contains(&(b.col, b.row)) {
                 let warn = Stroke::new(2.0, Color32::from_rgb(255, 60, 60));
                 painter.rect_stroke(r.shrink(1.0), scale * 0.08, warn, egui::StrokeKind::Inside);
@@ -332,7 +407,8 @@ impl BrickApp {
                 let ring = Stroke::new((scale * 0.06).max(1.0), darken(fill, 0.75));
                 for rr in b.row..b.row + b.h {
                     for cc in b.col..b.col + b.w {
-                        let c = origin + vec2((cc as f32 + 0.5) * cell.x, (rr as f32 + 0.5) * cell.y);
+                        let c =
+                            origin + vec2((cc as f32 + 0.5) * cell.x, (rr as f32 + 0.5) * cell.y);
                         painter.circle(c, scale * 0.3, fill, ring);
                     }
                 }
@@ -348,21 +424,42 @@ impl BrickApp {
         let dragging = ui.input(|i| !i.raw.hovered_files.is_empty());
         let zone = rect.shrink(24.0);
         let (border, fill) = if dragging {
-            (Color32::from_rgb(250, 200, 10), Color32::from_rgba_unmultiplied(250, 200, 10, 18))
+            (
+                Color32::from_rgb(250, 200, 10),
+                Color32::from_rgba_unmultiplied(250, 200, 10, 18),
+            )
         } else {
             (Color32::from_gray(120), Color32::TRANSPARENT)
         };
-        painter.rect(zone, 16.0, fill, Stroke::new(2.0, border), egui::StrokeKind::Inside);
+        painter.rect(
+            zone,
+            16.0,
+            fill,
+            Stroke::new(2.0, border),
+            egui::StrokeKind::Inside,
+        );
 
         let content = Rect::from_center_size(zone.center(), vec2(zone.width().min(420.0), 220.0));
         ui.scope_builder(egui::UiBuilder::new().max_rect(content), |ui| {
             ui.vertical_centered(|ui| {
                 brick_icon(ui);
                 ui.add_space(10.0);
-                let title = if dragging { "Drop to brickify it" } else { "Drop an image here" };
-                ui.label(egui::RichText::new(title).size(24.0).strong().color(Color32::WHITE));
+                let title = if dragging {
+                    "Drop to brickify it"
+                } else {
+                    "Drop an image here"
+                };
+                ui.label(
+                    egui::RichText::new(title)
+                        .size(24.0)
+                        .strong()
+                        .color(Color32::WHITE),
+                );
                 ui.add_space(4.0);
-                ui.label(egui::RichText::new("SVG, PNG or JPEG. Logos and simple artwork work best.").color(TEXT));
+                ui.label(
+                    egui::RichText::new("SVG, PNG or JPEG. Logos and simple artwork work best.")
+                        .color(TEXT),
+                );
                 ui.add_space(12.0);
                 let button = egui::Button::new(egui::RichText::new("Choose an image…").size(16.0));
                 if ui.add(button).clicked() {
@@ -370,7 +467,10 @@ impl BrickApp {
                 }
                 ui.add_space(8.0);
                 ui.label(
-                    egui::RichText::new("Then set the size and parts on the left, and export to LDraw.").color(WEAK_TEXT),
+                    egui::RichText::new(
+                        "Then set the size and parts on the left, and export to LDraw.",
+                    )
+                    .color(WEAK_TEXT),
                 );
             });
         });
@@ -401,9 +501,11 @@ impl eframe::App for BrickApp {
         }
         self.rebuild_if_needed();
 
-        egui::Panel::left("controls").default_size(320.0).show(ui, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| self.controls(ui));
-        });
+        egui::Panel::left("controls")
+            .default_size(320.0)
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| self.controls(ui));
+            });
         egui::CentralPanel::default().show(ui, |ui| {
             if self.loaded.is_none() {
                 self.empty_state(ui);
@@ -479,27 +581,32 @@ fn optional_colour(
         if let Some(code) = value {
             swatch(ui, *code);
             let name = palette::by_code(*code).map_or("?", |c| c.name);
-            egui::ComboBox::from_id_salt(id).selected_text(name).height(420.0).show_ui(ui, |ui| {
-                let neutral: Vec<_> = order.iter().filter(|c| palette::is_neutral(c)).collect();
-                let (on, off): (Vec<_>, Vec<_>) = order
-                    .iter()
-                    .filter(|c| !palette::is_neutral(c))
-                    .partition(|c| enabled.contains(&c.code));
-                for (heading, colours) in
-                    [("White, greys and black", neutral), ("Enabled colours", on), ("Other colours", off)]
-                {
-                    if colours.is_empty() {
-                        continue;
+            egui::ComboBox::from_id_salt(id)
+                .selected_text(name)
+                .height(420.0)
+                .show_ui(ui, |ui| {
+                    let neutral: Vec<_> = order.iter().filter(|c| palette::is_neutral(c)).collect();
+                    let (on, off): (Vec<_>, Vec<_>) = order
+                        .iter()
+                        .filter(|c| !palette::is_neutral(c))
+                        .partition(|c| enabled.contains(&c.code));
+                    for (heading, colours) in [
+                        ("White, greys and black", neutral),
+                        ("Enabled colours", on),
+                        ("Other colours", off),
+                    ] {
+                        if colours.is_empty() {
+                            continue;
+                        }
+                        section_heading(ui, heading);
+                        for c in colours {
+                            ui.horizontal(|ui| {
+                                swatch(ui, c.code);
+                                ui.selectable_value(code, c.code, c.name);
+                            });
+                        }
                     }
-                    section_heading(ui, heading);
-                    for c in colours {
-                        ui.horizontal(|ui| {
-                            swatch(ui, c.code);
-                            ui.selectable_value(code, c.code, c.name);
-                        });
-                    }
-                }
-            });
+                });
         }
         response
     })
