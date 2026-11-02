@@ -35,7 +35,11 @@ pub fn ldraw(m: &Mosaic, title: &str) -> String {
             Layout::Flat => b.h > b.w,
             Layout::Upright => b.d > b.w,
         };
-        let matrix = if along_z { "0 0 1 0 1 0 -1 0 0" } else { "1 0 0 0 1 0 0 0 1" };
+        let matrix = if along_z {
+            "0 0 1 0 1 0 -1 0 0"
+        } else {
+            "1 0 0 0 1 0 0 0 1"
+        };
         let _ = writeln!(out, "1 {} {x} {y} {z} {matrix} {}", b.colour, b.part);
     }
     let _ = writeln!(out, "0 STEP");
@@ -50,11 +54,21 @@ pub fn obj(tris: &[Tri]) -> String {
         let [r, g, b] = t.rgb.map(|c| c as f32 / 255.0);
         for v in t.v {
             // Rotate 180 degrees about X: LDraw is +Y down, OBJ is +Y up.
-            let _ = writeln!(out, "v {:.2} {:.2} {:.2} {r:.3} {g:.3} {b:.3}", v[0] * mm, -v[1] * mm, -v[2] * mm);
+            let _ = writeln!(
+                out,
+                "v {:.2} {:.2} {:.2} {r:.3} {g:.3} {b:.3}",
+                v[0] * mm,
+                -v[1] * mm,
+                -v[2] * mm
+            );
         }
     }
     for t in tris {
-        let _ = writeln!(out, "vn {:.3} {:.3} {:.3}", t.normal[0], -t.normal[1], -t.normal[2]);
+        let _ = writeln!(
+            out,
+            "vn {:.3} {:.3} {:.3}",
+            t.normal[0], -t.normal[1], -t.normal[2]
+        );
     }
     for i in 0..tris.len() {
         let (a, n) = (i * 3 + 1, i + 1);

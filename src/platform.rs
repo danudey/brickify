@@ -10,7 +10,10 @@ const IMAGE_EXTENSIONS: &[&str] = &["svg", "png", "jpg", "jpeg"];
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn pick_file(ctx: egui::Context, incoming: Incoming) {
-    let Some(path) = rfd::FileDialog::new().add_filter("Images", IMAGE_EXTENSIONS).pick_file() else {
+    let Some(path) = rfd::FileDialog::new()
+        .add_filter("Images", IMAGE_EXTENSIONS)
+        .pick_file()
+    else {
         return;
     };
     match std::fs::read(&path) {
@@ -25,7 +28,10 @@ pub fn pick_file(ctx: egui::Context, incoming: Incoming) {
 #[cfg(target_arch = "wasm32")]
 pub fn pick_file(ctx: egui::Context, incoming: Incoming) {
     wasm_bindgen_futures::spawn_local(async move {
-        let Some(file) = rfd::AsyncFileDialog::new().add_filter("Images", IMAGE_EXTENSIONS).pick_file().await
+        let Some(file) = rfd::AsyncFileDialog::new()
+            .add_filter("Images", IMAGE_EXTENSIONS)
+            .pick_file()
+            .await
         else {
             return;
         };
@@ -38,7 +44,8 @@ pub fn pick_file(ctx: egui::Context, incoming: Incoming) {
 pub type Dropped = Arc<dyn egui::DroppedFile + Send + Sync>;
 
 fn file_name(path: &std::path::Path) -> String {
-    path.file_name().map_or("image".into(), |n| n.to_string_lossy().into_owned())
+    path.file_name()
+        .map_or("image".into(), |n| n.to_string_lossy().into_owned())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -82,7 +89,9 @@ pub fn save_file(name: &str, bytes: &[u8]) {
         let parts = js_sys::Array::of1(&array);
         let blob = web_sys::Blob::new_with_u8_array_sequence(&parts)?;
         let url = web_sys::Url::create_object_url_with_blob(&blob)?;
-        let document = web_sys::window().and_then(|w| w.document()).ok_or("no document")?;
+        let document = web_sys::window()
+            .and_then(|w| w.document())
+            .ok_or("no document")?;
         let a: web_sys::HtmlAnchorElement = document.create_element("a")?.dyn_into()?;
         a.set_href(&url);
         a.set_download(name);
