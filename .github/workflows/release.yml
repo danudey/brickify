@@ -139,7 +139,7 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: ${{ matrix.target }}
           workspaces: ${{ env.WORKING_DIRECTORY }}
@@ -208,7 +208,7 @@ jobs:
       # Syft reads Cargo.lock, so the SBOM lists the crates the binary was
       # actually built from rather than the ranges Cargo.toml allows.
       - name: Generate an SBOM
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           path: ${{ env.WORKING_DIRECTORY }}
           format: spdx-json
@@ -278,7 +278,7 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: aarch64-apple-darwin, x86_64-apple-darwin
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: apple-darwin
           workspaces: ${{ env.WORKING_DIRECTORY }}
@@ -330,7 +330,7 @@ jobs:
           subject-path: ${{ steps.package.outputs.dir }}/*.tar.gz
 
       - name: Generate an SBOM
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           path: ${{ env.WORKING_DIRECTORY }}
           format: spdx-json

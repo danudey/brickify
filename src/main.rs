@@ -11,9 +11,9 @@ use mosaic::Settings;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use mosaic::{Layout, PartKind};
+    use mosaic::{Layout, Parts};
     const USAGE: &str = "usage: brickify [IMAGE] [--width STUDS] [--layout flat|upright] \
-                         [--parts plate|brick|tile] [--no-backing] [--border STUDS] \
+                         [--parts plate|brick|hybrid] [--smooth] [--antialias] [--dither] [--no-backing] [--border STUDS] \
                          [--export OUT.ldr|.obj|.csv]";
     let mut settings = Settings::default();
     let mut input = None;
@@ -30,13 +30,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             "--parts" => {
-                settings.kind = match value()?.as_str() {
-                    "brick" => PartKind::Brick,
-                    "tile" => PartKind::Tile,
-                    _ => PartKind::Plate,
-                }
+                let parts = value()?;
+                settings.parts = match parts.as_str() {
+                    "brick" => Parts::Bricks,
+                    "hybrid" => Parts::Hybrid,
+                    _ => Parts::Plates,
+                };
+                // "tile" is kept as shorthand for plates with a smooth top.
+                settings.smooth_top |= parts == "tile";
             }
             "--no-backing" => settings.backing = None,
+            "--smooth" => settings.smooth_top = true,
+            "--antialias" => settings.antialias = true,
+            "--dither" => settings.dither = true,
             "--border" => {
                 settings.border = Some(0);
                 settings.border_width = value()?.parse()?;

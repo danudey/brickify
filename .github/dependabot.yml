@@ -56,15 +56,18 @@ updates:
       prefix: build
       include: scope
     groups:
-      # Direct dependencies separately from transitive ones. A transitive
-      # bump is almost always safe to merge unread; a direct one is worth a
-      # look, and mixing them means neither gets the attention it deserves.
-      cargo-direct:
-        dependency-type: direct
+      # [dependencies] separately from [dev-dependencies]. A dev-dependency
+      # bump only touches tests and is almost always safe to merge unread; a
+      # runtime one ships to users and is worth a look, and mixing them means
+      # neither gets the attention it deserves. (Groups accept only
+      # `production` and `development` here, not `direct`/`indirect`; version
+      # updates touch direct dependencies only anyway.)
+      cargo-production:
+        dependency-type: production
         patterns:
           - "*"
-      cargo-indirect:
-        dependency-type: indirect
+      cargo-development:
+        dependency-type: development
         patterns:
           - "*"
     labels:
