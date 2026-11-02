@@ -16,6 +16,9 @@ trunk serve --release        # then open http://127.0.0.1:8080
 trunk build --release        # static site in dist/, host it anywhere
 ```
 
+Every push to `main` publishes the web version to GitHub Pages
+(`.github/workflows/pages.yml`). Turn it on once in Settings → Pages → Source: GitHub Actions.
+
 ## Command line (no window)
 
 ```sh
