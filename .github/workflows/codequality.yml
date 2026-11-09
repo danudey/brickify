@@ -88,7 +88,7 @@ jobs:
       # both from source on every run — a couple of minutes for a step that
       # only reformats JSON. binstall fetches the prebuilt binaries from
       # sarif-rs's own release page instead, in seconds.
-      - uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
+      - uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
         with:
           tool: cargo-binstall
 
